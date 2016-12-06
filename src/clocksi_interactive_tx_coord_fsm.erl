@@ -244,6 +244,8 @@ perform_singleitem_update(Key, Type, Params) ->
     case antidote_hooks:execute_pre_commit_hook(Key, Type, Params) of
         {Key, Type, Params1} ->
             case ?CLOCKSI_DOWNSTREAM:generate_downstream_op(Transaction, IndexNode, Key, Type, Params1, [],[]) of
+                {ok, noop} -> %% GMC_TODO: this avoids executing the operation but seems terrible
+                    {error, noop};
                 {ok, DownstreamRecord} ->
                     Updated_partitions = [{IndexNode, [{Key, Type, DownstreamRecord}]}],
                     TxId = Transaction#transaction.txn_id,
@@ -319,6 +321,8 @@ perform_update(Args, Updated_partitions, Transaction, _Sender, ClientOps, Intern
     case antidote_hooks:execute_pre_commit_hook(Key, Type, Param) of
         {Key, Type, Param1} ->
             case ?CLOCKSI_DOWNSTREAM:generate_downstream_op(Transaction, IndexNode, Key, Type, Param1, WriteSet, InternalReadSet) of
+                {ok, noop} -> %% GMC_TODO: this avoids executing the operation but seems terrible
+                    {error, noop};
                 {ok, DownstreamRecord} ->
                     NewUpdatedPartitions =
                         case WriteSet of
