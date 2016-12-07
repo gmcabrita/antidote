@@ -41,7 +41,18 @@ create_snapshot(Type) ->
 -spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {error, reason()}.
 update_snapshot(Type, Snapshot, Op) ->
     try
-        Type:update(Op, Snapshot)
+        case Type:update(Op, Snapshot) of
+            %% GMC_TODO: find a way to execute the given operations!
+            %% We cannot propagate the operations from here, since they will be propagated on
+            %% every read operation we perform...
+            {ok, {Result, Ops}} ->
+                lager:info("Type: ~p", [Type]),
+                lager:info("Snapshot: ~p", [Snapshot]),
+                lager:info("Op: ~p", [Op]),
+                lager:info("Receiving operations: ~p", [Ops]),
+                {ok, Result};
+            Other -> Other
+        end
     catch
         _:_ ->
             {error, unexpected_format}
