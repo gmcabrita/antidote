@@ -101,6 +101,7 @@ materialize(Type, TxId, MinSnapshotTime,
 %%      Snapshot: The initial snapshot to apply the operations to
 %%      Count: Should be input as 0, this will count the number of ops applied
 %%      OpList: The list of operations to apply
+%%      GeneratedDownstreamOps: The list of operations that were generated after applying updates (only applies to certain CCRDTs)
 %%      Output: Either the snapshot with the operations applied to
 %%      it, or an error.
 -spec apply_operations(type(), snapshot(), non_neg_integer(), [clocksi_payload()], [op()]) ->
