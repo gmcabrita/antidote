@@ -38,19 +38,10 @@ create_snapshot(Type) ->
 
 %% @doc Applies an operation to a snapshot of a crdt.
 %%      This function yields an error if the crdt does not have a corresponding update operation.
--spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {error, reason()}.
+-spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {ok, snapshot(), [op()]} | {error, reason()}.
 update_snapshot(Type, Snapshot, Op) ->
     try
         case Type:update(Op, Snapshot) of
-            %% GMC_TODO: find a way to execute the given operations!
-            %% We cannot propagate the operations from here, since they will be propagated on
-            %% every read operation we perform...
-            {ok, {Result, Ops}} ->
-                lager:info("Type: ~p", [Type]),
-                lager:info("Snapshot: ~p", [Snapshot]),
-                lager:info("Op: ~p", [Op]),
-                lager:info("Receiving operations: ~p", [Ops]),
-                {ok, Result};
             Other -> Other
         end
     catch
@@ -66,6 +57,8 @@ materialize_eager(Type, Snapshot, [Op | Rest]) ->
     case update_snapshot(Type, Snapshot, Op) of
         {error, Reason} ->
             {error, Reason};
+        {ok, Result, _Ops} ->
+            materialize_eager(Type, Result, Rest);
         {ok, Result} ->
             materialize_eager(Type, Result, Rest)
     end.
