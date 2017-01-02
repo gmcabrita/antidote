@@ -591,6 +591,9 @@ tuple_to_key_int(Next,Last,Tuple,Acc) ->
 %% operations for a given key, just perform a read, that will trigger
 %% the GC mechanism.
 -spec op_insert_gc(key(), clocksi_payload(), #mat_state{}) -> true.
+op_insert_gc(_, #clocksi_payload{op_param = noop}, _) ->
+    lager:info("ignored noop in op_insert_gc"),
+    true;
 op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
     case ets:member(OpsCache, Key) of
 	false ->
