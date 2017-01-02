@@ -621,15 +621,19 @@ update_materializer(DownstreamOps, Transaction, TxCommitTime) ->
     DcId = dc_meta_data_utilities:get_my_dc_id(),
     ReversedDownstreamOps = lists:reverse(DownstreamOps),
     UpdateFunction = fun({Key, Type, Op}, AccIn) ->
-			     CommittedDownstreamOp =
-				 #clocksi_payload{
-				    key = Key,
-				    type = Type,
-				    op_param = Op,
-				    snapshot_time = Transaction#transaction.vec_snapshot_time,
-				    commit_time = {DcId, TxCommitTime},
-				    txid = Transaction#transaction.txn_id},
-			     [materializer_vnode:update(Key, CommittedDownstreamOp) | AccIn]
+                 case Op == noop of
+                    true -> AccIn;
+                    false ->
+                        CommittedDownstreamOp =
+                            #clocksi_payload{
+                                key = Key,
+                                type = Type,
+                                op_param = Op,
+                                snapshot_time = Transaction#transaction.vec_snapshot_time,
+                                commit_time = {DcId, TxCommitTime},
+                                txid = Transaction#transaction.txn_id},
+                        [materializer_vnode:update(Key, CommittedDownstreamOp) | AccIn]
+                 end
 		     end,
     Results = lists:foldl(UpdateFunction, [], ReversedDownstreamOps),
     Failures = lists:filter(fun(Elem) -> Elem /= ok end, Results),
