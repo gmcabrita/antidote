@@ -52,7 +52,7 @@ get_address() ->
   %% TODO check if we do not return a link-local address
   {ok, DirName} = file:get_cwd(),
   ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
-  lager:info("Reading public accessible IP from :~p~n",[ConfigFileDir]),
+  lager:info("Reading pubsub public accessible IP from ~p~n",[ConfigFileDir]),
   {ok, NodeAddressProps} = file:consult(ConfigFileDir),
   Ip = proplists:get_value(public_ip, NodeAddressProps),
   Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
@@ -62,7 +62,7 @@ get_address() ->
 get_address_list() ->
     {ok, DirName} = file:get_cwd(),
     ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
-    lager:info("Reading public accessible IP from :~p~n",[ConfigFileDir]),
+    lager:info("Reading pubsub public accessible IP from ~p~n",[ConfigFileDir]),
     {ok, NodeAddressProps} = file:consult(ConfigFileDir),
     Ip = proplists:get_value(public_ip, NodeAddressProps),
     {Fst,Snd,Thd,_Fth} = Ip,

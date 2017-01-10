@@ -53,15 +53,25 @@
 %% Fetch the local address of a log_reader socket.
 -spec get_address() -> socket_address().
 get_address() ->
-  {ok, List} = inet:getif(),
-  {Ip, _, _} = hd(List),
+  {ok, DirName} = file:get_cwd(),
+  ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
+  lager:info("Reading logreader public accessible IP from ~p~n",[ConfigFileDir]),
+  {ok, NodeAddressProps} = file:consult(ConfigFileDir),
+  Ip = proplists:get_value(public_ip, NodeAddressProps),
   Port = application:get_env(antidote, logreader_port, ?DEFAULT_LOGREADER_PORT),
   {Ip, Port}.
 
 -spec get_address_list() -> {[partition_id()],[socket_address()]}.
 get_address_list() ->
     PartitionList = dc_utilities:get_my_partitions(),
-    {ok, List} = inet:getif(),
+    {ok, DirName} = file:get_cwd(),
+    ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
+    lager:info("Reading logreader public accessible IP from :~p~n",[ConfigFileDir]),
+    {ok, NodeAddressProps} = file:consult(ConfigFileDir),
+    Ip = proplists:get_value(public_ip, NodeAddressProps),
+    {Fst,Snd,Thd,_Fth} = Ip,
+    {ok,IpList} = inet:getif(),
+    List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, logreader_port, ?DEFAULT_LOGREADER_PORT),
     AddressList = [{Ip1,Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}],
     {PartitionList, AddressList}.
@@ -141,5 +151,3 @@ finish_send_response(BinaryResponse, Id, ReqId, Socket) ->
     ok = erlzmq:send(Socket, Id, [sndmore]),
     ok = erlzmq:send(Socket, <<>>, [sndmore]),
     ok = erlzmq:send(Socket, Msg).
-
-
