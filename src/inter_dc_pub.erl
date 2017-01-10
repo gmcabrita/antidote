@@ -65,7 +65,7 @@ get_address_list() ->
     lager:info("Reading public accessible IP from :~p~n",[ConfigFileDir]),
     {ok, NodeAddressProps} = file:consult(ConfigFileDir),
     Ip = proplists:get_value(public_ip, NodeAddressProps),
-    {Fst,Snd,Thd,Fth} = Ip,
+    {Fst,Snd,Thd,_Fth} = Ip,
     {ok,IpList} = inet:getif(),
     List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
