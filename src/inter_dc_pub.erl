@@ -50,14 +50,24 @@
 -spec get_address() -> socket_address().
 get_address() ->
   %% TODO check if we do not return a link-local address
-  {ok, List} = inet:getif(),
-  {Ip, _, _} = hd(List),
+  {ok, DirName} = file:get_cwd(),
+  ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
+  lager:info("Reading public accessible IP from :~p~n",[ConfigFileDir]),
+  {ok, NodeAddressProps} = file:consult(ConfigFileDir),
+  Ip = proplists:get_value(public_ip, NodeAddressProps),
   Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
   {Ip, Port}.
 
 -spec get_address_list() -> [socket_address()].
 get_address_list() ->
-    {ok, List} = inet:getif(),
+    {ok, DirName} = file:get_cwd(),
+    ConfigFileDir = DirName ++ "/../../../../config/node-address.config", %% /config
+    lager:info("Reading public accessible IP from :~p~n",[ConfigFileDir]),
+    {ok, NodeAddressProps} = file:consult(ConfigFileDir),
+    Ip = proplists:get_value(public_ip, NodeAddressProps),
+    {Fst,Snd,Thd,Fth} = Ip,
+    {ok,IpList} = inet:getif(),
+    List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
     [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
 
