@@ -63,10 +63,13 @@ get_address_list() ->
 
 -spec broadcast(#interdc_txn{}) -> ok.
 broadcast(Txn) ->
-  % Grab list of remote DCs
-  {ok, Dict} = stable_meta_data_server:read_meta_data(external_descriptors),
-  MyDcId = dc_meta_data_utilities:get_my_dc_id(),
-  DCs = lists:delete(MyDcId, dict:fetch_keys(Dict)),
+  % Grab list of remote DCs (is there a better way to do this?)
+  DCs = case stable_meta_data_server:read_meta_data(external_descriptors) of
+    {ok, Dict} ->
+      MyDcId = dc_meta_data_utilities:get_my_dc_id(),
+      lists:delete(MyDcId, dict:fetch_keys(Dict));
+    _ -> []
+  end,
 
   % For each remote DC send the transaction
   lists:foreach(fun(DcId) ->
