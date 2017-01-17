@@ -127,9 +127,10 @@ connect_to_node([Address|Rest]) ->
 	    %% Create a subscriber socket for the specified DC
 	    Socket = zmq_utils:create_connect_socket(sub, true, Address),
 	    %% For each partition in the current node:
+	    MyDcId = dc_meta_data_utilities:get_my_dc_id(),
 	    lists:foreach(fun(P) ->
-				  %% Make the socket subscribe to messages prefixed with the given partition number
-				  ok = zmq_utils:sub_filter(Socket, inter_dc_txn:partition_to_bin(P))
+				  %% Make the socket subscribe to messages prefixed with the given dcid and partition number
+				  ok = zmq_utils:sub_filter(Socket, inter_dc_txn:dcid_and_partition_to_bin(MyDcId, P))
 			  end, dc_utilities:get_my_partitions()),
 	    {ok, Socket};
 	_ ->
