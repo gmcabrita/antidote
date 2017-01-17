@@ -29,8 +29,10 @@
   req_id_to_bin/1,
   ops_by_type/2,
   to_bin/1,
+  to_bin/2,
   from_bin/1,
   partition_to_bin/1,
+  dcid_and_partition_to_bin/2,
   last_log_opid/1,
   is_ping/1]).
 
