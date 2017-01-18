@@ -425,10 +425,15 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
             _ ->
                 materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
             end,
-            NewOps = lists:map(fun(Op) -> {Key, Type, Op} end, NewDownstreamOps),
+            NewOps = lists:map(fun(Op) ->
+                {K, B} = Key,
+                Object = {K, Type, B},
+                {Update, Args} = Op,
+                {Object, Update, Args}
+            end, NewDownstreamOps),
             %% TODO: @gmcabrita Is using antidote:update_objects/3 here fine?
             lager:info("Updated object ~p with ~p", [Key, NewOps]),
-            antidote:update_objects(ignore, [], NewOps),
+            {ok, _} = antidote:update_objects(ignore, [], NewOps),
             {ok, Snapshot};
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
