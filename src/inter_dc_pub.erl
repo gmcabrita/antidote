@@ -63,21 +63,27 @@ get_address_list() ->
 
 -spec broadcast(#interdc_txn{}) -> ok.
 broadcast(Txn) ->
-  % Grab list of remote DCs (is there a better way to do this?)
-  DCs = case stable_meta_data_server:read_meta_data(external_descriptors) of
-    {ok, Dict} ->
-      MyDcId = dc_meta_data_utilities:get_my_dc_id(),
-      lists:delete(MyDcId, dict:fetch_keys(Dict));
+  % Grab list of remote DCs
+  DCs = case stable_meta_data_server:read_meta_data(dc_list) of
+    {ok, List} -> List;
     _ -> []
   end,
 
-  % For each remote DC send the transaction
-  lists:foreach(fun(DcId) ->
-    case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(Txn, DcId)}) of
-      {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
-      Normal -> Normal
-    end
-  end, DCs).
+  case DCs of
+    [] ->
+      case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(Txn)}) of
+        {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction."); %% this can happen if a node is shutting down.
+        Normal -> Normal
+      end;
+    _ ->
+      % For each remote DC send the transaction
+      lists:foreach(fun(DcId) ->
+        case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(Txn, DcId)}) of
+          {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
+          Normal -> Normal
+        end
+      end, DCs)
+  end.
 
 %%%% Server methods ---------------------------------------------------------+
 
