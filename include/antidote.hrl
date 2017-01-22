@@ -80,6 +80,11 @@
 %% Frequency at which manager requests remote resources.
 -define(TRANSFER_FREQ, 100). %in Milliseconds
 
+% Allow antidote to buffer collections of transactions for a brief duration.
+% Note: Only useful when using computational CRDTs.
+-define(BUFFER_TXNS, true).
+-define(BUFFER_TXN_TIMER, 200). % buffer duration in milliseconds
+
 %% The definition "FIRST_OP" is used by the materializer.
 %% The materialzer caches a tuple for each key containing
 %% information about the state of operations performed on that key.
