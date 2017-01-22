@@ -114,7 +114,10 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
     %% If the transaction was collected
     {ok, Ops} ->
       Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id),
-      broadcast(State1, Txn);
+      case ?BUFFER_TXNS of
+        true -> buffer(State1, Txn);
+        false -> broadcast(State1, Txn)
+      end;
     %% If the transaction is not yet complete
     none -> State1
   end,
@@ -132,25 +135,25 @@ handle_command(ping, _Sender, State) ->
     get_stable_time(State#state.partition),
     {noreply, State}.
 
-handle_coverage(_Req, _KeySpaces, _Sender, State) -> 
+handle_coverage(_Req, _KeySpaces, _Sender, State) ->
     {stop, not_implemented, State}.
-handle_exit(_Pid, _Reason, State) -> 
+handle_exit(_Pid, _Reason, State) ->
     {noreply, State}.
-handoff_starting(_TargetNode, State) -> 
+handoff_starting(_TargetNode, State) ->
     {true, State}.
 handoff_cancelled(State) ->
     {ok, set_timer(State)}.
-handoff_finished(_TargetNode, State) -> 
+handoff_finished(_TargetNode, State) ->
     {ok, State}.
-handle_handoff_command( _Message , _Sender, State) -> 
+handle_handoff_command( _Message , _Sender, State) ->
     {noreply, State}.
-handle_handoff_data(_Data, State) -> 
+handle_handoff_data(_Data, State) ->
     {reply, ok, State}.
-encode_handoff_item(Key, Operation) -> 
+encode_handoff_item(Key, Operation) ->
     term_to_binary({Key, Operation}).
-is_empty(State) -> 
+is_empty(State) ->
     {true, State}.
-delete(State) -> 
+delete(State) ->
     {ok, State}.
 terminate(_Reason, State) ->
     _ = del_timer(State),
@@ -188,12 +191,19 @@ set_timer(First, State = #state{partition = Partition}) ->
 	    State1 = del_timer(State),
 	    State1#state{timer = riak_core_vnode:send_command_after(?HEARTBEAT_PERIOD, ping)}
     end.
-		
+
 
 %% Broadcasts the transaction via local publisher.
 -spec broadcast(#state{}, #interdc_txn{}) -> #state{}.
 broadcast(State, Txn) ->
   inter_dc_pub:broadcast(Txn),
+  Id = inter_dc_txn:last_log_opid(Txn),
+  State#state{last_log_id = Id}.
+
+%% Buffers the transaction for delayed propagation.
+-spec buffer(#state{}, #interdc_txn{}) -> #state{}.
+buffer(#state{partition = Partition} = State, Txn) ->
+  inter_dc_txn_buffer_vnode:buffer(Partition, Txn),
   Id = inter_dc_txn:last_log_opid(Txn),
   State#state{last_log_id = Id}.
 

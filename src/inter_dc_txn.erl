@@ -125,4 +125,4 @@ partition_to_bin(Partition) -> pad(?PARTITION_BYTE_LENGTH, binary:encode_unsigne
 -spec req_id_to_bin(non_neg_integer()) -> binary().
 req_id_to_bin(ReqId) ->
     pad_or_trim(?REQUEST_ID_BYTE_LENGTH, binary:encode_unsigned(ReqId)).
-			   
+
