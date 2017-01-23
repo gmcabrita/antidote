@@ -81,7 +81,7 @@
 -define(TRANSFER_FREQ, 100). %in Milliseconds
 
 % Allow antidote to buffer collections of transactions for a brief duration.
-% Note: Only useful when using computational CRDTs.
+% This is used to compact update operations that affect computational CRDTs.
 -define(BUFFER_TXNS, true).
 -define(BUFFER_TXN_TIMER, 200). % buffer duration in milliseconds
 

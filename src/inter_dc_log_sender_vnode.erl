@@ -200,7 +200,8 @@ broadcast(State, Txn) ->
   Id = inter_dc_txn:last_log_opid(Txn),
   State#state{last_log_id = Id}.
 
-%% Buffers the transaction for delayed propagation.
+%% Buffers the transaction so its operations can be compacted with operations in
+% other buffered transactions.
 -spec buffer(#state{}, #interdc_txn{}) -> #state{}.
 buffer(#state{partition = Partition} = State, Txn) ->
   inter_dc_txn_buffer_vnode:buffer(Partition, Txn),

@@ -19,8 +19,8 @@
 %% -------------------------------------------------------------------
 
 %% This vnode is responsible for collecting transactions for a small duration.
-%% Once the time runs out it passes the list of collected transactions to an
-%% actor that is responsible for compacting the CCRDT operations in those transactions.
+%% Once the timer runs out it passes the list of collected transactions to an
+%% actor that attempts to compact CCRDT operations in those transactions.
 %% The buffer of transactions is then wiped clean and the timer restarted.
 
 -module(inter_dc_txn_buffer_vnode).
@@ -64,6 +64,8 @@
 
 %%%% API
 
+%% Adds a transaction to the buffer.
+%% Transactions in the buffer are compacted and broadcasted after the timer ends.
 -spec buffer(partition_id(), #interdc_txn{}) -> ok.
 buffer(Partition, Txn) -> dc_utilities:call_vnode(Partition, inter_dc_txn_buffer_vnode_master, {buffer, Txn}).
 
@@ -116,7 +118,7 @@ terminate(_Reason, State) ->
   _ = del_timer(State),
   ok.
 
-%%%%%%%%%%%%%%%%%%%%%%%5
+%%%% Functions
 
 %% Cancels the send timer, if one is set.
 -spec del_timer(#state{}) -> #state{}.
@@ -138,27 +140,36 @@ set_timer(State = #state{partition = Partition}) ->
     _Other -> State
   end.
 
+%% Broadcasts a collection of transactions.
 -spec broadcast([#interdc_txn{}]) -> ok.
 broadcast(Buffer) ->
   lager:info("Broadcasting: ~p~n", [Buffer]),
   lists:foreach(fun(Txn) -> inter_dc_pub:broadcast(Txn) end, Buffer).
 
+%% Compacts and broadcasts a collection of transactions.
 -spec compact_and_broadcast([#interdc_txn{}]) -> ok.
 compact_and_broadcast(Buffer) ->
   broadcast(compact(Buffer)).
 
+%% Grabs the transaction id from an interdc_txn record.
 get_txid(Txn) ->
   Record = hd(Txn#interdc_txn.log_records),
   Record#log_record.log_operation#log_operation.tx_id.
 
-%% TODO: @gmcabrita Test this function.
+%% Compacts a collection of transactions.
+%% If no computational CRDT operation is found in any of the transactions then
+%% the output is the same as the input.
 -spec compact([#interdc_txn{}]) -> [#interdc_txn{}].
 compact([]) -> [];
 compact(Buffer) ->
-  % map of {Key, Bucket} -> [#log_record{}] for the CCRDT update operations,
-  % list of #log_record{} for the non-CCRDT update operations (can't be compacted),
-  % list of transactions (with update ops removed)
+  % TODO: @gmcabrita We currently use the transaction id of the last transaction
+  % in the collection to build the final transaction. Perhaps we should generate
+  % a new transaction ID instead.
   TxnId = get_txid(lists:last(Buffer)),
+  % This builds:
+  % - a map of {Key, Bucket} => [#log_record{}] for the computational CRDT ops;
+  % - a list of #log_record{} for the non-computional CRDT ops;
+  % - the list of transactions, where their log_records only contain prepare and commit ops.
   {CCRDTUpdateOps, ReversedOtherUpdateOps, ReversedTxns} =
     lists:foldl(fun(Txn = #interdc_txn{log_records = Logs}, {CCRDTOps, Ops, Txns}) ->
       {CCRDTUpdates, Updates, Other} = split_transaction_records(Logs, {CCRDTOps, Ops}, TxnId),
@@ -166,31 +177,42 @@ compact(Buffer) ->
       {CCRDTUpdates, Updates, [CleanedTxn | Txns]}
     end, {#{}, [], []}, Buffer),
   case maps:size(CCRDTUpdateOps) == 0 of
-    % there are no CCRDTs in the transactions, return the original transactions
+    % There are no CCRDTs in the buffer, return the original transactions instead.
     true -> Buffer;
     false ->
+      % Compact the operation logs of the computational CRDTs.
       CompactedMapping = maps:map(fun(_, LogRecords) -> compact_log_records(lists:reverse(LogRecords)) end, CCRDTUpdateOps),
+      % Get the transaction record we'll reuse to build the new one.
       Txn = hd(ReversedTxns),
+      % Get the prev_log_opid from the first transaction in the buffer.
       FstTxn = hd(Buffer),
       PrevLogOpId = FstTxn#interdc_txn.prev_log_opid,
+      % Get the tail log_records from the transaction we're reusing.
       Records = Txn#interdc_txn.log_records,
+      % Build a list of all the compational CRDT compacted operations.
       Ops = lists:flatten(maps:values(CompactedMapping)),
-      %% Reverse to get the correct ordering. TODO: @gmcabrita is this actually needed?
+      % Reverse to get the correct ordering.
       OtherUpdateOps = lists:reverse(ReversedOtherUpdateOps),
       [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}]
   end.
 
+%% Splits a collection of transaction #log_record{} into a tuple containing:
+%% - a map of {Key, Bucket} => [#log_record{}] for the computational CRDT ops;
+%% - a list of #log_record{} for the non-computional CRDT ops;
+%% - the list of #log_record{} for the prepare and commit ops.
 -spec split_transaction_records([#log_record{}], {#{}, [#log_record{}]}, txid()) -> {#{}, [#log_record{}], #log_record{}}.
 split_transaction_records(Logs, {CCRDTOps, Ops}, TxId) ->
   lists:foldl(fun(Log, Acc) -> place_txn_record(Log, Acc, TxId) end, {CCRDTOps, Ops, []}, Logs).
 
+%% Updates the #log_record{} transaction id and places the #log_record{}
+%% into the correct tuple slot.
 -spec place_txn_record(#log_record{}, {#{}, [#log_record{}], [#log_record{}]}, txid()) -> {#{}, [#log_record{}], [#log_record{}]}.
 place_txn_record(
   LogRecordArg = #log_record{
                 log_operation = #log_operation{
                                   op_type = OpType,
                                   log_payload = LogPayload}}, {CCRDTOpsMap, UpdateOps, OtherOps}, TxId) ->
-  %% update operation to a specific txid
+  % Update #log_record to the given TxId.
   LogOp = LogRecordArg#log_record.log_operation,
   LogRecord = LogRecordArg#log_record{log_operation = LogOp#log_operation{tx_id = TxId}},
   case OpType of
@@ -211,37 +233,54 @@ place_txn_record(
     _ -> {CCRDTOpsMap, UpdateOps, [LogRecord | OtherOps]}
   end.
 
+%% Gets the CRDT op() from a #log_record{}.
 -spec get_op(#log_record{}) -> op().
 get_op(#log_record{log_operation = #log_operation{log_payload = #update_log_payload{op = Op}}}) ->
   Op.
 
+%% Gets the CRDT type() from a #log_record{}.
 -spec get_type(#log_record{}) -> type().
 get_type(#log_record{log_operation = #log_operation{log_payload = #update_log_payload{type = Type}}}) ->
   Type.
 
+%% Replaces the CRDT op() in the nested record #log_record{} with the given op().
 -spec replace_op(#log_record{}, op()) -> #log_record{}.
 replace_op(LogRecord, Op) ->
   LogOp = LogRecord#log_record.log_operation,
   LogPayload = LogOp#log_operation.log_payload,
-  LogRecord#log_record{log_operation = LogOp#log_operation{log_payload = LogPayload#update_log_payload{op = Op}}}.
+  LogRecord#log_record{
+    log_operation = LogOp#log_operation{
+      log_payload = LogPayload#update_log_payload{op = Op}
+    }
+  }.
 
+%% Destructures an #update_log_payload{} record to the tuple {key(), bucket(), type(), op()}.
 -spec destructure_update_payload(#update_log_payload{}) -> {key(), bucket(), type(), op()}.
 destructure_update_payload(#update_log_payload{key = Key, bucket = Bucket, type = Type, op = Op}) ->
   {Key, Bucket, Type, Op}.
 
+%% Compacts the given list of #log_record{} records.
+%% It first builds a propagation log from the list of records, starting from
+%% the earliest update operation.
+%% Every time a record is added
 -spec compact_log_records([#log_record{}]) -> [#log_record{}].
 compact_log_records(LogRecords) ->
+  % This builds a propagation log starting from scratch, adding each #log_record{} one-by-one.
+  % Every time a new record is added using log/2 it attempts to compact the newly added record.
   lists:reverse(lists:foldl(fun(LogRecord, LogAcc) ->
     log(LogAcc, LogRecord)
   end, [], LogRecords)).
 
+%% Adds a #log_record{} to the propagation log and does some compaction work.
 -spec log([#log_record{}], #log_record{}) -> [#log_record{}].
 log(LogAcc, LogRecord) ->
   case log_(LogAcc, LogRecord) of
     {ok, Logs} -> Logs;
+    {rerun, Logs, NewLogRecord} -> log(Logs, NewLogRecord);
     {err, Logs} -> [LogRecord | Logs]
   end.
 
+%% Helper function for log/2.
 -spec log_([#log_record{}], #log_record{}) -> {ok | err, [#log_record{}]}.
 log_([], _) -> {err, []};
 log_([LogRecord2 | Rest], LogRecord1) ->
@@ -254,9 +293,15 @@ log_([LogRecord2 | Rest], LogRecord1) ->
         {noop} -> {ok, Rest};
         NewOp ->
           NewRecord = replace_op(LogRecord1, NewOp),
-          {ok, [NewRecord | Rest]}
+          % Compaction was possible, but we should keep going back in the log,
+          % since it may be possible to compact more operations.
+          case log_(Rest, NewRecord) of
+            {ok, List} -> {ok, List};
+            {err, List} -> {ok, [NewRecord | List]}
+          end
       end;
     false ->
+      % Could not compact the two operations, but we can still commmute them.
       case log_(Rest, LogRecord1) of
         {ok, List} -> {ok, [LogRecord2 | List]};
         {err, _} -> {err, [LogRecord2 | Rest]}
@@ -266,6 +311,17 @@ log_([LogRecord2 | Rest], LogRecord1) ->
 %%% Tests
 
 -ifdef(TEST).
+
+compare_txns([Tx1], [Tx2]) ->
+  ?assertEqual(Tx1#interdc_txn.dcid, Tx2#interdc_txn.dcid),
+  ?assertEqual(Tx1#interdc_txn.partition, Tx2#interdc_txn.partition),
+  ?assertEqual(Tx1#interdc_txn.prev_log_opid, Tx2#interdc_txn.prev_log_opid),
+  ?assertEqual(Tx1#interdc_txn.snapshot, Tx2#interdc_txn.snapshot),
+  ?assertEqual(Tx1#interdc_txn.timestamp, Tx2#interdc_txn.timestamp),
+  Set1 = sets:from_list(Tx1#interdc_txn.log_records),
+  Set2 = sets:from_list(Tx2#interdc_txn.log_records),
+  ?assertEqual(sets:is_subset(Set1, Set2), true),
+  ?assertEqual(sets:is_subset(Set2, Set1), true).
 
 inter_dc_txn_from_ops(Ops, PrevLogOpId, N, TxId, CommitTime, SnapshotTime) ->
   {Records, Number} = lists:foldl(fun({Key, Bucket, Type, Op}, {List, Number}) ->
@@ -314,6 +370,34 @@ no_ccrdts_test() ->
   ?assertEqual(compact(Buffer1), Buffer1),
   Buffer2 = Buffer1 ++ [inter_dc_txn_from_ops([{key, bucket, non_ccrdt, some_operation}], 1, 2, 2, 300, 250)],
   ?assertEqual(compact(Buffer2), Buffer2).
+
+replicate_ops_test() ->
+  Type = antidote_ccrdt_topk_with_deletes,
+  Buffer = [
+    inter_dc_txn_from_ops([{a, b, Type, {add, {0, 5, {foo, 1}}}},
+                           {a, b, Type, {replicate_add, {0, 5, {foo, 1}}}},
+                           {a, b, Type, {replicate_add, {0, 40, {foo, 2}}}},
+                           {a, b, Type, {replicate_add, {0, 50, {foo, 3}}}},
+                           {a, b, Type, {replicate_add, {0, 51, {foo, 4}}}},
+                           {a, b, Type, {replicate_del, {0, #{foo => {foo, 3}}}}},
+                           {a, b, Type, {replicate_add, {0, 100, {foo, 5}}}},
+                           {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
+                          0,
+                          1,
+                          1,
+                          200,
+                          50)
+  ],
+  Expected = [
+    inter_dc_txn_from_ops([{a, b, Type, {replicate_add, {0, 100, {foo, 5}}}},
+                           {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
+                          0,
+                          7,
+                          1,
+                          200,
+                          50)
+  ],
+  compare_txns(compact(Buffer), Expected).
 
 different_ccrdt_types_test() ->
   TopkD = antidote_ccrdt_topk_with_deletes,
