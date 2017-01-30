@@ -29,6 +29,7 @@
 %% API
 -export([
   broadcast/1,
+  broadcast_tuple/1,
   get_address/0,
   get_address_list/0]).
 
@@ -60,6 +61,38 @@ get_address_list() ->
     {ok, List} = inet:getif(),
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
     [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
+
+%% TODO: @gmcabrita test if this actually work.
+-spec broadcast_tuple({#interdc_txn{}, #interdc_txn{}}) -> ok.
+broadcast_tuple({TxnShort, TxnFull}) ->
+  DCs = case stable_meta_data_server:read_meta_data(dc_list) of
+    {ok, List} -> List;
+    _ -> []
+  end,
+
+  % Shuffle list of DCs
+  ShuffledDCs = [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- DCs])],
+  {DCsFull, DCsShort} = lists:split(?CCRDT_REPLICATION_FACTOR - 1, ShuffledDCs),
+
+  % Broadcast Full Txn
+  lists:foreach(fun(DcId) ->
+    case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(TxnFull, DcId)}) of
+      {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
+      Normal ->
+        lager:info("Successfully sent full txn to DC: ~p.", [DcId]),
+        Normal
+    end
+  end, DCsFull),
+
+  % Broadcast Short Txn
+  lists:foreach(fun(DcId) ->
+    case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(TxnShort, DcId)}) of
+      {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
+      Normal ->
+        lager:info("Successfully sent short txn to DC: ~p.", [DcId]),
+        Normal
+    end
+  end, DCsShort).
 
 -spec broadcast(#interdc_txn{}) -> ok.
 broadcast(Txn) ->

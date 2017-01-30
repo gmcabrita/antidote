@@ -140,16 +140,15 @@ set_timer(State = #state{partition = Partition}) ->
     _Other -> State
   end.
 
-%% Broadcasts a collection of transactions.
--spec broadcast([#interdc_txn{}]) -> ok.
-broadcast(Buffer) ->
-  lager:info("Broadcasting: ~p~n", [Buffer]),
-  lists:foreach(fun(Txn) -> inter_dc_pub:broadcast(Txn) end, Buffer).
+%% Broadcasts a tuple of collection of transactions.
+-spec broadcast_tuple({[#interdc_txn{}], [#interdc_txn{}]}) -> ok.
+broadcast_tuple({BufferShort, BufferFull}) ->
+  lists:foreach(fun(TxnTuple) -> inter_dc_pub:broadcast_tuple(TxnTuple) end, lists:zip(BufferShort, BufferFull)).
 
 %% Compacts and broadcasts a collection of transactions.
 -spec compact_and_broadcast([#interdc_txn{}]) -> ok.
 compact_and_broadcast(Buffer) ->
-  broadcast(compact(Buffer)).
+  broadcast_tuple(compact(Buffer)).
 
 %% Grabs the transaction id from an interdc_txn record.
 get_txid(Txn) ->
@@ -159,7 +158,11 @@ get_txid(Txn) ->
 %% Compacts a collection of transactions.
 %% If no computational CRDT operation is found in any of the transactions then
 %% the output is the same as the input.
--spec compact([#interdc_txn{}]) -> [#interdc_txn{}].
+%%
+%% Returns a tuple where the first field is the collection of transactions
+%% with ALL operations, and the second field is the collection of transactions
+%% without the computational CRDT replicate tagged operations.
+-spec compact([#interdc_txn{}]) -> {[#interdc_txn{}], [#interdc_txn{}]}.
 compact([]) -> [];
 compact(Buffer) ->
   % TODO: @gmcabrita We currently use the transaction id of the last transaction
@@ -178,7 +181,7 @@ compact(Buffer) ->
     end, {#{}, [], []}, Buffer),
   case maps:size(CCRDTUpdateOps) == 0 of
     % There are no CCRDTs in the buffer, return the original transactions instead.
-    true -> Buffer;
+    true -> {Buffer, Buffer};
     false ->
       % Compact the operation logs of the computational CRDTs.
       CompactedMapping = maps:map(fun(_, LogRecords) -> compact_log_records(lists:reverse(LogRecords)) end, CCRDTUpdateOps),
@@ -190,10 +193,17 @@ compact(Buffer) ->
       % Get the tail log_records from the transaction we're reusing.
       Records = Txn#interdc_txn.log_records,
       % Build a list of all the compational CRDT compacted operations.
-      Ops = lists:flatten(maps:values(CompactedMapping)),
+      OpsWithReplicate = lists:flatten(maps:values(CompactedMapping)),
+      % Filter the replicate tagged operations out of the list.
+      Ops = lists:filter(fun(X) ->
+        {T, O} = get_type_and_op(X),
+        not T:is_replicate_tagged(O)
+      end, OpsWithReplicate),
       % Reverse to get the correct ordering.
       OtherUpdateOps = lists:reverse(ReversedOtherUpdateOps),
-      [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}]
+      CompactedTxnsWithReplicate = [Txn#interdc_txn{log_records = OtherUpdateOps ++ OpsWithReplicate ++ Records, prev_log_opid = PrevLogOpId}],
+      CompactedTxns = [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}],
+      {CompactedTxns, CompactedTxnsWithReplicate}
   end.
 
 %% Splits a collection of transaction #log_record{} into a tuple containing:
@@ -242,6 +252,10 @@ get_op(#log_record{log_operation = #log_operation{log_payload = #update_log_payl
 -spec get_type(#log_record{}) -> type().
 get_type(#log_record{log_operation = #log_operation{log_payload = #update_log_payload{type = Type}}}) ->
   Type.
+
+%% Gets the CRDT type() and op() from a #log_record{}.
+get_type_and_op(#log_record{log_operation = #log_operation{log_payload = #update_log_payload{type = Type, op = Op}}}) ->
+  {Type, Op}.
 
 %% Replaces the CRDT op() in the nested record #log_record{} with the given op().
 -spec replace_op(#log_record{}, op()) -> #log_record{}.
@@ -312,6 +326,10 @@ log_([LogRecord2 | Rest], LogRecord1) ->
 
 -ifdef(TEST).
 
+compare_txn_sets({Short1, Full1} , {Short2, Full2}) ->
+  compare_txns(Short1, Short2),
+  compare_txns(Full1, Full2).
+
 compare_txns([Tx1], [Tx2]) ->
   ?assertEqual(Tx1#interdc_txn.dcid, Tx2#interdc_txn.dcid),
   ?assertEqual(Tx1#interdc_txn.partition, Tx2#interdc_txn.partition),
@@ -367,9 +385,9 @@ no_ccrdts_test() ->
                           200,
                           50)
   ],
-  ?assertEqual(compact(Buffer1), Buffer1),
+  ?assertEqual(compact(Buffer1), {Buffer1, Buffer1}),
   Buffer2 = Buffer1 ++ [inter_dc_txn_from_ops([{key, bucket, non_ccrdt, some_operation}], 1, 2, 2, 300, 250)],
-  ?assertEqual(compact(Buffer2), Buffer2).
+  ?assertEqual(compact(Buffer2), {Buffer2, Buffer2}).
 
 replicate_ops_test() ->
   Type = antidote_ccrdt_topk_with_deletes,
@@ -397,7 +415,15 @@ replicate_ops_test() ->
                           200,
                           50)
   ],
-  compare_txns(compact(Buffer), Expected).
+  ExpectedWithoutReplicate = [
+    inter_dc_txn_from_ops([{a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
+                          0,
+                          8,
+                          1,
+                          200,
+                          50)
+  ],
+  compare_txn_sets(compact(Buffer), {ExpectedWithoutReplicate, Expected}).
 
 different_ccrdt_types_test() ->
   TopkD = antidote_ccrdt_topk_with_deletes,
@@ -426,7 +452,7 @@ different_ccrdt_types_test() ->
                           200,
                           50)
   ],
-  ?assertEqual(compact(Buffer), Expected).
+  ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 txn_ccrdt_mixed_with_crdt_test() ->
   CCRDT = antidote_ccrdt_topk_with_deletes,
@@ -456,7 +482,7 @@ txn_ccrdt_mixed_with_crdt_test() ->
                           200,
                           150)
   ],
-  ?assertEqual(compact(Buffer), Expected).
+  ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 compactable_txn_test() ->
   CCRDT = antidote_ccrdt_topk_with_deletes,
@@ -477,7 +503,7 @@ compactable_txn_test() ->
                           150,
                           200)
   ],
-  ?assertEqual(compact(Buffer), Expected).
+  ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 two_ccrdt_txn_not_compactable_test() ->
   CCRDT = antidote_ccrdt_topk_with_deletes,
@@ -520,7 +546,7 @@ two_ccrdt_txn_not_compactable_test() ->
                           200,
                           150)
   ],
-  ?assertEqual(compact(Buffer), Expected).
+  ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 single_ccrdt_txn_not_compactable_test() ->
   CCRDT = antidote_ccrdt_topk_with_deletes,
@@ -536,6 +562,6 @@ single_ccrdt_txn_not_compactable_test() ->
                           100,
                           50)
   ],
-  ?assertEqual(compact(Buffer), Buffer).
+  ?assertEqual(compact(Buffer), {Buffer, Buffer}).
 
 -endif.

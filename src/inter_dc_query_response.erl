@@ -101,7 +101,12 @@ get_entries_internal(Partition, From, To) ->
   %% We can remove this once the read_log_range is reimplemented.
   FilteredTxns = lists:filter(fun inter_dc_txn:is_local/1, Txns),
   case ?BUFFER_TXNS of
-      true -> inter_dc_txn_buffer_vnode:compact(FilteredTxns);
+      true ->
+        % We have no way of checking if the short version of the compacted
+        % transaction should be sent or not, so we send the full one to not
+        % impact fault-tolerance.
+        {_, Txn} = inter_dc_txn_buffer_vnode:compact(FilteredTxns),
+        Txn;
       false -> FilteredTxns
   end.
 
