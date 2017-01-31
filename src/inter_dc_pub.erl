@@ -62,7 +62,6 @@ get_address_list() ->
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
     [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
 
-%% TODO: @gmcabrita test if this actually work.
 -spec broadcast_tuple({#interdc_txn{}, #interdc_txn{}}) -> ok.
 broadcast_tuple({TxnShort, TxnFull}) ->
   DCs = case stable_meta_data_server:read_meta_data(dc_list) of
