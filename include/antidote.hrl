@@ -56,7 +56,8 @@
 %% HEARTBEAT_PERIOD: Period of sending the heartbeat messages in interDC layer
 -define(HEARTBEAT_PERIOD, 1000).
 %% VECTORCLOCK_UPDATE_PERIOD: Period of updates of the stable snapshot per partition
--define(VECTORCLOCK_UPDATE_PERIOD, 100).
+%% Note: when BUFFER_TXNS is enabled this period should be the same as BUFFER_TXN_TIMER.
+-define(VECTORCLOCK_UPDATE_PERIOD, 200).
 %% This is the time that nodes will sleep inbetween sending meta-data
 %% to other physical nodes within the DC
 -define(META_DATA_SLEEP, 1000).
