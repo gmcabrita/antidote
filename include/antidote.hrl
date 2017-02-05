@@ -56,8 +56,7 @@
 %% HEARTBEAT_PERIOD: Period of sending the heartbeat messages in interDC layer
 -define(HEARTBEAT_PERIOD, 1000).
 %% VECTORCLOCK_UPDATE_PERIOD: Period of updates of the stable snapshot per partition
-%% Note: when BUFFER_TXNS is enabled this period should be the same as BUFFER_TXN_TIMER.
--define(VECTORCLOCK_UPDATE_PERIOD, 200).
+-define(VECTORCLOCK_UPDATE_PERIOD, 100).
 %% This is the time that nodes will sleep inbetween sending meta-data
 %% to other physical nodes within the DC
 -define(META_DATA_SLEEP, 1000).
@@ -85,7 +84,7 @@
 % This is used to compact update operations that affect computational CRDTs.
 -define(BUFFER_TXNS, true).
 -define(BUFFER_TXN_TIMER, 200). % buffer duration in milliseconds
--define(CCRDT_REPLICATION_FACTOR, 3). % replication factor for CCRDT replicate ops
+-define(CCRDT_REPLICATION_FACTOR, 2). % replication factor for CCRDT replicate ops
 
 %% The definition "FIRST_OP" is used by the materializer.
 %% The materialzer caches a tuple for each key containing
