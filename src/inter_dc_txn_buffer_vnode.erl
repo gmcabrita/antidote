@@ -138,7 +138,9 @@ set_timer(State = #state{partition = Partition}) ->
   case Node of
     MyNode ->
       State1 = del_timer(State),
-      State1#state{timer = riak_core_vnode:send_command_after(?BUFFER_TXN_TIMER, send)};
+      Time = dc_utilities:now_millisec(),
+      Timer = (Time + (?BUFFER_TXN_TIMER - (Time rem ?BUFFER_TXN_TIMER))) - Time,
+      State1#state{timer = riak_core_vnode:send_command_after(Timer, send)};
     _Other -> State
   end.
 
@@ -181,32 +183,28 @@ compact(Buffer) ->
       CleanedTxn = Txn#interdc_txn{log_records = lists:reverse(Other)},
       {CCRDTUpdates, Updates, [CleanedTxn | Txns]}
     end, {#{}, [], []}, Buffer),
-  case maps:size(CCRDTUpdateOps) == 0 of
-    % There are no CCRDTs in the buffer, return the original transactions instead.
-    true -> {Buffer, Buffer};
-    false ->
-      % Compact the operation logs of the computational CRDTs.
-      CompactedMapping = maps:map(fun(_, LogRecords) -> compact_log_records(lists:reverse(LogRecords)) end, CCRDTUpdateOps),
-      % Get the transaction record we'll reuse to build the new one.
-      Txn = hd(ReversedTxns),
-      % Get the prev_log_opid from the first transaction in the buffer.
-      FstTxn = hd(Buffer),
-      PrevLogOpId = FstTxn#interdc_txn.prev_log_opid,
-      % Get the tail log_records from the transaction we're reusing.
-      Records = Txn#interdc_txn.log_records,
-      % Build a list of all the compational CRDT compacted operations.
-      OpsWithReplicate = lists:flatten(maps:values(CompactedMapping)),
-      % Filter the replicate tagged operations out of the list.
-      Ops = lists:filter(fun(X) ->
-        {T, O} = get_type_and_op(X),
-        not T:is_replicate_tagged(O)
-      end, OpsWithReplicate),
-      % Reverse to get the correct ordering.
-      OtherUpdateOps = lists:reverse(ReversedOtherUpdateOps),
-      CompactedTxnsWithReplicate = [Txn#interdc_txn{log_records = OtherUpdateOps ++ OpsWithReplicate ++ Records, prev_log_opid = PrevLogOpId}],
-      CompactedTxns = [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}],
-      {CompactedTxns, CompactedTxnsWithReplicate}
-  end.
+
+    % Compact the operation logs of the computational CRDTs.
+    CompactedMapping = maps:map(fun(_, LogRecords) -> compact_log_records(lists:reverse(LogRecords)) end, CCRDTUpdateOps),
+    % Get the transaction record we'll reuse to build the new one.
+    Txn = hd(ReversedTxns),
+    % Get the prev_log_opid from the first transaction in the buffer.
+    FstTxn = hd(Buffer),
+    PrevLogOpId = FstTxn#interdc_txn.prev_log_opid,
+    % Get the tail log_records from the transaction we're reusing.
+    Records = Txn#interdc_txn.log_records,
+    % Build a list of all the compational CRDT compacted operations.
+    OpsWithReplicate = lists:flatten(maps:values(CompactedMapping)),
+    % Filter the replicate tagged operations out of the list.
+    Ops = lists:filter(fun(X) ->
+      {T, O} = get_type_and_op(X),
+      not T:is_replicate_tagged(O)
+    end, OpsWithReplicate),
+    % Reverse to get the correct ordering.
+    OtherUpdateOps = lists:reverse(ReversedOtherUpdateOps),
+    CompactedTxnsWithReplicate = [Txn#interdc_txn{log_records = OtherUpdateOps ++ OpsWithReplicate ++ Records, prev_log_opid = PrevLogOpId}],
+    CompactedTxns = [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}],
+    {CompactedTxns, CompactedTxnsWithReplicate}.
 
 %% Splits a collection of transaction #log_record{} into a tuple containing:
 %% - a map of {Key, Bucket} => [#log_record{}] for the computational CRDT ops;
@@ -389,7 +387,16 @@ no_ccrdts_test() ->
   ],
   ?assertEqual(compact(Buffer1), {Buffer1, Buffer1}),
   Buffer2 = Buffer1 ++ [inter_dc_txn_from_ops([{key, bucket, non_ccrdt, some_operation}], 1, 2, 2, 300, 250)],
-  ?assertEqual(compact(Buffer2), {Buffer2, Buffer2}).
+  Expected = [
+    inter_dc_txn_from_ops([{key, bucket, non_ccrdt, some_operation},
+                           {key, bucket, non_ccrdt, some_operation}],
+                          0,
+                          1,
+                          2,
+                          300,
+                          250)
+  ],
+  ?assertEqual(compact(Buffer2), {Expected, Expected}).
 
 replicate_ops_test() ->
   Type = antidote_ccrdt_topk_with_deletes,
