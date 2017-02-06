@@ -167,7 +167,7 @@ get_txid(Txn) ->
 %% with ALL operations, and the second field is the collection of transactions
 %% without the computational CRDT replicate tagged operations.
 -spec compact([#interdc_txn{}]) -> {[#interdc_txn{}], [#interdc_txn{}]}.
-compact([]) -> [];
+compact([]) -> {[], []};
 compact(Buffer) ->
   % TODO: @gmcabrita We currently use the transaction id of the last transaction
   % in the collection to build the final transaction. Perhaps we should generate
@@ -374,7 +374,7 @@ inter_dc_txn_from_ops(Ops, PrevLogOpId, N, TxId, CommitTime, SnapshotTime) ->
   }.
 
 empty_txns_test() ->
-  ?assertEqual(compact([]), []).
+  ?assertEqual(compact([]), {[], []}).
 
 no_ccrdts_test() ->
   Buffer1 = [

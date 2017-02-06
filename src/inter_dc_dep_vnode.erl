@@ -145,7 +145,7 @@ try_store(State, Txn=#interdc_txn{dcid = DCID, partition = Partition, timestamp 
 
 handle_command({set_dependency_clock, Vector}, _Sender, State) ->
     {reply, ok, State#state{vectorclock = Vector}};
-    
+
 handle_command({txn, Txn}, _Sender, State) ->
     NewState = process_all_queues(push_txn(State, Txn)),
     {reply, ok, NewState};
@@ -189,8 +189,13 @@ pop_txn(State = #state{queues = Queues}, DCID) ->
 %% Update the clock value associated with the given DCID from the perspective of this partition.
 -spec update_clock(#state{}, dcid(), non_neg_integer()) -> #state{}.
 update_clock(State = #state{last_updated = LastUpdated}, DCID, Timestamp) ->
-  %% Should we decrement the timestamp value by 1?
-  NewClock = vectorclock:set_clock_of_dc(DCID, Timestamp, State#state.vectorclock),
+  Ts = case ?BUFFER_TXNS of
+    true -> (Timestamp-1) - ((Timestamp-1) rem (?BUFFER_TXN_TIMER * 1000));
+    false ->
+      %% Should we decrement the timestamp value by 1?
+      Timestamp
+  end,
+  NewClock = vectorclock:set_clock_of_dc(DCID, Ts, State#state.vectorclock),
 
   %% Check if the stable snapshot should be refreshed.
   %% It's an optimization that reduces communication overhead during intensive updates at remote DCs.
@@ -198,7 +203,11 @@ update_clock(State = #state{last_updated = LastUpdated}, DCID, Timestamp) ->
   %% and that there is always the next one arriving shortly.
   %% This causes the stable_snapshot to tick more slowly, which is an expected behaviour.
   Now = dc_utilities:now_millisec(),
-  NewLastUpdated = case Now > LastUpdated + ?VECTORCLOCK_UPDATE_PERIOD of
+  UpdatePeriod = case ?BUFFER_TXNS of
+    true -> ?BUFFER_TXN_TIMER + 1;
+    false -> ?VECTORCLOCK_UPDATE_PERIOD
+  end,
+  NewLastUpdated = case Now > LastUpdated + UpdatePeriod of
     %% Stable snapshot was not updated for the defined period of time.
     %% Push the changes and update the last_updated parameter to the current timestamp.
     %% WARNING: this update must push the whole contents of the partition vectorclock,
@@ -219,8 +228,13 @@ update_clock(State = #state{last_updated = LastUpdated}, DCID, Timestamp) ->
 %% Get the current vectorclock from the perspective of this partition, with the updated entry for current DC.
 -spec get_partition_clock(#state{}) -> vectorclock().
 get_partition_clock(State) ->
+  Timestamp = dc_utilities:now_microsec(),
+  Ts = case ?BUFFER_TXNS of
+    true -> (Timestamp-1) - ((Timestamp-1) rem (?BUFFER_TXN_TIMER * 1000));
+    false -> Timestamp
+  end,
   %% Return the vectorclock associated with the current state, but update the local entry with the current timestamp
-  vectorclock:set_clock_of_dc(dc_meta_data_utilities:get_my_dc_id(), dc_utilities:now_microsec(), State#state.vectorclock).
+  vectorclock:set_clock_of_dc(dc_meta_data_utilities:get_my_dc_id(), Ts, State#state.vectorclock).
 
 %% Utility function: converts the transaction to a list of clocksi_payload ops.
 -spec updates_to_clocksi_payloads(#interdc_txn{}) -> list(#clocksi_payload{}).
