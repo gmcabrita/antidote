@@ -71,7 +71,10 @@ broadcast_tuple({TxnShort, TxnFull}) ->
 
   % Shuffle list of DCs
   ShuffledDCs = [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- DCs])],
-  {DCsFull, DCsShort} = lists:split(?CCRDT_REPLICATION_FACTOR - 1, ShuffledDCs),
+  {DCsFull, DCsShort} = case ShuffledDCs of
+    [] -> {[], []};
+    _ -> lists:split(?CCRDT_REPLICATION_FACTOR - 1, ShuffledDCs)
+  end,
 
   % Broadcast Full Txn
   lists:foreach(fun(DcId) ->
@@ -102,8 +105,7 @@ broadcast(Txn) ->
   end,
 
   case DCs of
-    [] ->
-      lager:info("No servers to broadcast to.");
+    [] -> ok;
     _ ->
       % For each remote DC send the transaction
       lists:foreach(fun(DcId) ->
