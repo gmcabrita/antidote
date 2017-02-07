@@ -93,6 +93,7 @@ init([Partition]) ->
     partition = Partition,
     buffer = log_txn_assembler:new_state(),
     last_log_id = #op_number{},
+    last_log_id_buffered = #op_number{},
     timer = none
   }}.
 
@@ -113,7 +114,7 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
   State2 = case Result of
     %% If the transaction was collected
     {ok, Ops} ->
-      Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id),
+      Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id_buffered),
       case ?BUFFER_TXNS of
         true -> buffer(State1, Txn);
         false -> broadcast(State1, Txn)
@@ -198,14 +199,15 @@ set_timer(First, State = #state{partition = Partition}) ->
 broadcast(State, Txn) ->
   inter_dc_pub:broadcast(Txn),
   Id = inter_dc_txn:last_log_opid(Txn),
-  State#state{last_log_id = Id}.
+  State#state{last_log_id = Id, last_log_id_buffered = Id}.
 
 %% Buffers the transaction so its operations can be compacted with operations in
 % other buffered transactions.
 -spec buffer(#state{}, #interdc_txn{}) -> #state{}.
 buffer(#state{partition = Partition} = State, Txn) ->
   inter_dc_txn_buffer_vnode:buffer(Partition, Txn),
-  State.
+  Id = inter_dc_txn:last_log_opid(Txn),
+  State#state{last_log_id_buffered = Id}.
 
 %% @doc Sends an async request to get the smallest snapshot time of active transactions.
 %%      No new updates with smaller timestamp will occur in future.
