@@ -393,7 +393,7 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
                     end;
                 {error, Reason} ->
                     {reply, {error, Reason}, State}
-            end
+            end;
         {error, Reason} ->
             {reply, {error, Reason}, State}
     end;
