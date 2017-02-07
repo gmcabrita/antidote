@@ -65,7 +65,6 @@
     %% The txn_buffer is then wiped clean and the buffer_timer restarted.
     %% Note: these are only used if ?BUFFER_TXNS is true.
     txn_buffer :: [#interdc_txn{}], % collection of completed transactions
-    last_log_id_buffered :: #op_number{}, % last log id that was buffered
     buffer_timer :: any() % when this timer
 }).
 
@@ -102,7 +101,6 @@ init([Partition]) ->
         buffer = log_txn_assembler:new_state(),
         last_log_id = #op_number{},
         timer = none,
-        last_log_id_buffered = #op_number{},
         txn_buffer = [],
         buffer_timer = none
     })}.
@@ -113,7 +111,7 @@ handle_command({start_timer}, _Sender, State) ->
 
 handle_command({update_last_log_id, OpId}, _Sender, State = #state{partition = Partition}) ->
     lager:debug("Updating last log id at partition ~w to: ~w", [Partition, OpId]),
-    {reply, ok, State#state{last_log_id = OpId, last_log_id_buffered = OpId}};
+    {reply, ok, State#state{last_log_id = OpId}};
 
 %% Handle the new operation
 %% -spec handle_command({log_event, #log_record{}}, pid(), #state{}) -> {noreply, #state{}}.
@@ -124,20 +122,17 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
     State2 = case Result of
         %% If the transaction was collected
         {ok, Ops} ->
+            Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id),
             case ?BUFFER_TXNS of
-                true ->
-                    Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id),
-                    broadcast(State1, Txn);
-                false ->
-                    Txn = inter_dc_txn:from_ops(Ops, State1#state.partition, State#state.last_log_id_buffered),
-                    buffer(State1, Txn)
-            end
+                true -> buffer(State1, Txn);
+                false -> broadcast(State1, Txn)
+            end;
         %% If the transaction is not yet complete
         none -> State1
     end,
     {noreply, State2};
 
-handle_command(txn_send, _Sender, State = #state{partition = Partition, txn_buffer = Buffer}) ->
+handle_command(txn_send, _Sender, State = #state{txn_buffer = Buffer}) ->
     OpId = case Buffer of
         [] -> State#state.last_log_id;
         _ ->
@@ -145,9 +140,9 @@ handle_command(txn_send, _Sender, State = #state{partition = Partition, txn_buff
             spawn(fun() -> inter_dc_txn_buffer:compact_and_broadcast(Buf) end),
             inter_dc_txn:last_log_opid(hd(Buffer))
     end,
-    State1 = set_buffer_timer(State#state{buffer = [], last_log_id = OpId}),
+    State1 = set_buffer_timer(State#state{txn_buffer = [], last_log_id = OpId}),
     % TODO: @gmcabrita should we reset the heartbeat timer here?
-    {noreply, State1}.
+    {noreply, State1};
 
 handle_command({stable_time, Time}, _Sender, State) ->
     PingTxn = inter_dc_txn:ping(State#state.partition, State#state.last_log_id, Time),
@@ -245,13 +240,13 @@ set_buffer_timer(First, State = #state{partition = Partition}) ->
             case Node of
                 MyNode ->
                     State1 = del_buffer_timer(State),
-                    State1#state{buffer_timer = riak_core_vnode:send_command_after(?BUFFER_TIMER, txn_send)};
+                    State1#state{buffer_timer = riak_core_vnode:send_command_after(?BUFFER_TXN_TIMER, txn_send)};
                 _Other ->
                     State
             end;
         false ->
             State1 = del_buffer_timer(State),
-            State1#state{buffer_timer = riak_core_vnode:send_command_after(?BUFFER_TIMER, txn_send)}
+            State1#state{buffer_timer = riak_core_vnode:send_command_after(?BUFFER_TXN_TIMER, txn_send)}
     end.
 
 %% Broadcasts the transaction via local publisher.
@@ -259,14 +254,14 @@ set_buffer_timer(First, State = #state{partition = Partition}) ->
 broadcast(State, Txn) ->
   inter_dc_pub:broadcast(Txn),
   Id = inter_dc_txn:last_log_opid(Txn),
-  State#state{last_log_id = Id, last_log_id_buffered = Id}.
+  State#state{last_log_id = Id}.
 
 %% Buffers the transaction so its operations can be compacted with operations in
 % other buffered transactions.
 -spec buffer(#state{}, #interdc_txn{}) -> #state{}.
 buffer(#state{txn_buffer = Buffer} = State, Txn) ->
     Id = inter_dc_txn:last_log_opid(Txn),
-    State#state{last_log_id_buffered = Id, buffer = [Txn | Buffer]}.
+    State#state{txn_buffer = [Txn | Buffer]}.
 
 %% @doc Sends an async request to get the smallest snapshot time of active transactions.
 %%      No new updates with smaller timestamp will occur in future.

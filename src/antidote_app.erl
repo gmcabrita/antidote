@@ -48,13 +48,6 @@ start(_StartType, _StartArgs) ->
             ok = riak_core:register([{vnode_module, inter_dc_log_sender_vnode}]),
             ok = riak_core_node_watcher:service_up(logsender, self()),
 
-            case ?BUFFER_TXNS of
-                true ->
-                    ok = riak_core:register([{vnode_module, inter_dc_txn_buffer_vnode}]),
-                    ok = riak_core_node_watcher:service_up(txnbuffer, self());
-                false -> ok
-            end,
-
             ok = riak_core:register([{vnode_module, inter_dc_sub_vnode}]),
             ok = riak_core_node_watcher:service_up(inter_dc_sub, self()),
 

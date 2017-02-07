@@ -91,7 +91,6 @@ init(_Args) ->
     InterDcLogReaderQMaster = ?CHILD(inter_dc_query, worker, []),
     InterDcLogReaderRMaster = ?CHILD(inter_dc_query_receive_socket, worker, []),
     InterDcLogSenderMaster = ?VNODE(inter_dc_log_sender_vnode_master, inter_dc_log_sender_vnode),
-    InterDcTxnBufferMaster = ?VNODE(inter_dc_txn_buffer_vnode_master, inter_dc_txn_buffer_vnode),
 
 
     MetaDataManagerSup = {meta_data_manager_sup,
@@ -125,7 +124,6 @@ init(_Args) ->
        InterDcLogReaderQMaster,
        InterDcLogReaderRMaster,
        InterDcLogSenderMaster,
-       InterDcTxnBufferMaster,
        StableMetaData,
        MetaDataManagerSup,
        MetaDataSenderSup,
