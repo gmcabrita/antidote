@@ -260,7 +260,6 @@ broadcast(State, Txn) ->
 % other buffered transactions.
 -spec buffer(#state{}, #interdc_txn{}) -> #state{}.
 buffer(#state{txn_buffer = Buffer} = State, Txn) ->
-    Id = inter_dc_txn:last_log_opid(Txn),
     State#state{txn_buffer = [Txn | Buffer]}.
 
 %% @doc Sends an async request to get the smallest snapshot time of active transactions.
