@@ -81,7 +81,7 @@ broadcast_tuple({TxnShort, TxnFull}) ->
     case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(TxnFull, DcId)}) of
       {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
       Normal ->
-        lager:info("Successfully sent full txn to DC: ~p.", [DcId]),
+        %lager:info("Successfully sent full txn to DC: ~p.", [DcId]),
         Normal
     end
   end, DCsFull),
@@ -91,7 +91,7 @@ broadcast_tuple({TxnShort, TxnFull}) ->
     case catch gen_server:call(?MODULE, {publish, inter_dc_txn:to_bin(TxnShort, DcId)}) of
       {'EXIT', _Reason} -> lager:warning("Failed to broadcast a transaction to ~p.", [DcId]); %% this can happen if a node is shutting down.
       Normal ->
-        lager:info("Successfully sent short txn to DC: ~p.", [DcId]),
+        %lager:info("Successfully sent short txn to DC: ~p.", [DcId]),
         Normal
     end
   end, DCsShort).

@@ -88,7 +88,7 @@ handle_command(send, _Sender, State = #state{buffer = Buffer}) ->
     [] -> ok;
     _ ->
       Buf = lists:reverse(Buffer),
-      lager:info("Sending transactions from buffer: ~p~n", [Buf]),
+      %lager:info("Sending transactions from buffer: ~p~n", [Buf]),
       spawn(fun() ->
         compact_and_broadcast(Buf)
       end)
