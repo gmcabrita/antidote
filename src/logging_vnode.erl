@@ -353,56 +353,47 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
                #state{logs_map=Map,
                       op_id_table=OpIdTable,
                       partition=Partition,
-		      enable_log_to_disk=EnableLog}=State) ->
+                      enable_log_to_disk=EnableLog}=State) ->
     case get_log_from_map(Map, Partition, LogId) of
         {ok, Log} ->
-	    MyDCID = dc_meta_data_utilities:get_my_dc_id(),
-	    %% all operations update the per log, operation id
-	    OpId = get_op_id(OpIdTable, {LogId, MyDCID}),
-
-            case LogOperation#log_operation.op_type == update andalso (LogOperation#log_operation.log_payload)#update_log_payload.op == noop of
-                true ->
-                    %lager:info("ditched noop"),
-                    NewOpId = OpId#op_number{local =  Local + 1, global = Global + 1},
-                    true = update_ets_op_id({LogId,MyDCID},NewOpId,OpIdTable),
-                    {reply, {ok, OpId}, State};
-                false ->
-                    #op_number{local = Local, global = Global} = OpId,
-                    NewOpId = OpId#op_number{local =  Local + 1, global = Global + 1},
-                    true = update_ets_op_id({LogId,MyDCID},NewOpId,OpIdTable),
-                    %% non commit operations update the bucket id number to keep track
-                    %% of the number of updates per bucket
-                    NewBucketOpId =
-                    case LogOperation#log_operation.op_type of
-                        update ->
-                            Bucket = (LogOperation#log_operation.log_payload)#update_log_payload.bucket,
-                            BOpId = get_op_id(OpIdTable, {LogId,Bucket,MyDCID}),
-                            #op_number{local = BLocal, global = BGlobal} = BOpId,
-                            NewBOpId = BOpId#op_number{local = BLocal + 1, global = BGlobal + 1},
-                            true = update_ets_op_id({LogId,Bucket,MyDCID},NewBOpId,OpIdTable),
-                            NewBOpId;
-                        _ -> NewOpId
-                    end,
-                    LogRecord = #log_record{
-                      version = log_utilities:log_record_version(),
-                      op_number = NewOpId,
-                      bucket_op_number = NewBucketOpId,
-                      log_operation = LogOperation},
-                    case insert_log_record(Log, LogId, LogRecord, EnableLog) of
-                        {ok, NewOpId} ->
-                            inter_dc_log_sender_vnode:send(Partition, LogRecord),
-                            case Sync of
-                                true ->
-                                    case disk_log:sync(Log) of
-                                        ok -> {reply, {ok, OpId}, State};
-                                        {error, Reason} -> {reply, {error, Reason}, State}
-                                    end;
-                                false -> {reply, {ok, OpId}, State}
+            MyDCID = dc_meta_data_utilities:get_my_dc_id(),
+            %% all operations update the per log, operation id
+            OpId = get_op_id(OpIdTable, {LogId, MyDCID}),
+            #op_number{local = Local, global = Global} = OpId,
+            NewOpId = OpId#op_number{local =  Local + 1, global = Global + 1},
+            true = update_ets_op_id({LogId,MyDCID},NewOpId,OpIdTable),
+            %% non commit operations update the bucket id number to keep track
+            %% of the number of updates per bucket
+            NewBucketOpId =
+            case LogOperation#log_operation.op_type of
+                update ->
+                    Bucket = (LogOperation#log_operation.log_payload)#update_log_payload.bucket,
+                    BOpId = get_op_id(OpIdTable, {LogId,Bucket,MyDCID}),
+                    #op_number{local = BLocal, global = BGlobal} = BOpId,
+                    NewBOpId = BOpId#op_number{local = BLocal + 1, global = BGlobal + 1},
+                    true = update_ets_op_id({LogId,Bucket,MyDCID},NewBOpId,OpIdTable),
+                    NewBOpId;
+                _ -> NewOpId
+            end,
+            LogRecord = #log_record{
+                version = log_utilities:log_record_version(),
+                op_number = NewOpId,
+                bucket_op_number = NewBucketOpId,
+                log_operation = LogOperation},
+            case insert_log_record(Log, LogId, LogRecord, EnableLog) of
+                {ok, NewOpId} ->
+                    inter_dc_log_sender_vnode:send(Partition, LogRecord),
+                    case Sync of
+                        true ->
+                            case disk_log:sync(Log) of
+                                ok -> {reply, {ok, OpId}, State};
+                                {error, Reason} -> {reply, {error, Reason}, State}
                             end;
-                        {error, Reason} ->
-                            {reply, {error, Reason}, State}
-                    end
-            end;
+                        false -> {reply, {ok, OpId}, State}
+                    end;
+                {error, Reason} ->
+                    {reply, {error, Reason}, State}
+            end
         {error, Reason} ->
             {reply, {error, Reason}, State}
     end;
