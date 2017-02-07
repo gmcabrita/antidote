@@ -362,7 +362,6 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
 
             case LogOperation#log_operation.op_type == update andalso (LogOperation#log_operation.log_payload)#update_log_payload.op == noop of
                 true ->
-                    lager:info("ditched noop"),
                     {reply, {ok, OpId}, State};
                 false ->
                     #op_number{local = Local, global = Global} = OpId,
