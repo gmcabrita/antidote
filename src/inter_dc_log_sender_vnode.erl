@@ -58,6 +58,7 @@
   partition :: partition_id(),
   buffer, %% log_tx_assembler:state
   last_log_id :: #op_number{},
+  last_log_id_buffered :: #op_number{},
   timer :: any()
 }).
 
