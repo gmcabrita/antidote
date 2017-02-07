@@ -205,8 +205,7 @@ broadcast(State, Txn) ->
 -spec buffer(#state{}, #interdc_txn{}) -> #state{}.
 buffer(#state{partition = Partition} = State, Txn) ->
   inter_dc_txn_buffer_vnode:buffer(Partition, Txn),
-  Id = inter_dc_txn:last_log_opid(Txn),
-  State#state{last_log_id = Id}.
+  State.
 
 %% @doc Sends an async request to get the smallest snapshot time of active transactions.
 %%      No new updates with smaller timestamp will occur in future.

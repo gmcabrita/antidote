@@ -83,14 +83,16 @@ init([Partition]) ->
 handle_command({buffer, Txn}, _Sender, State = #state{buffer = Buffer}) ->
   State1 = State#state{buffer = [Txn | Buffer]},
   {reply, ok, State1};
-handle_command(send, _Sender, State = #state{buffer = Buffer}) ->
+handle_command(send, _Sender, State = #state{partition = Partition, buffer = Buffer}) ->
   case Buffer of
     [] -> ok;
     _ ->
       Buf = lists:reverse(Buffer),
       %lager:info("Sending transactions from buffer: ~p~n", [Buf]),
       spawn(fun() ->
-        compact_and_broadcast(Buf)
+        compact_and_broadcast(Buf),
+        Id = inter_dc_txn:last_log_opid(hd(Buffer)),
+        inter_dc_log_sender_vnode:update_last_log_id(Partition, Id)
       end)
   end,
   State1 = set_timer(State#state{buffer = []}),
