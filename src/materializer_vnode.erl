@@ -638,7 +638,7 @@ retry_log_append(Node, LogId, LogRecord) ->
     case logging_vnode:append(Node, LogId, LogRecord) of
         {ok, _} -> ok;
         {error, Reason} ->
-            lager:info("Failed to append LogRecord on-the-fly, retrying. Node: ~p, LogId: ~p, Reason: ~p~n", [Node, LogId, Reason]),
+            lager:warning("Failed to append LogRecord on-the-fly, retrying. Node: ~p, LogId: ~p, Reason: ~p~n", [Node, LogId, Reason]),
             retry_log_append(Node, LogId, LogRecord)
     end.
 
@@ -649,7 +649,7 @@ retry_single_commit_sync(UpdatedPartition, Transaction) ->
             lager:warning("On-the-fly transaction commit sync aborted, retrying."),
             retry_single_commit_sync(UpdatedPartition, Transaction);
         {error, Reason} ->
-            lager:info("On-the-fly transaction commit sync errored: ~p~n", [Reason]),
+            lager:warning("On-the-fly transaction commit sync errored, retrying. Error: ~p~n", [Reason]),
             retry_single_commit_sync(UpdatedPartition, Transaction)
     end.
 

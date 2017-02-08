@@ -132,15 +132,18 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
     end,
     {noreply, State2};
 
-handle_command(txn_send, _Sender, State = #state{txn_buffer = Buffer}) ->
-    OpId = case Buffer of
+handle_command(txn_send, _Sender, State = #state{partition = Partition, txn_buffer = Buffer}) ->
+    case Buffer of
         [] -> State#state.last_log_id;
         _ ->
             Buf = lists:reverse(Buffer),
-            spawn(fun() -> inter_dc_txn_buffer:compact_and_broadcast(Buf) end),
-            inter_dc_txn:last_log_opid(hd(Buffer))
+            OpId = inter_dc_txn:last_log_opid(hd(Buffer))
+            spawn(fun() ->
+                inter_dc_txn_buffer:compact_and_broadcast(Buf),
+                inter_dc_log_sender_vnode:update_last_log_id(Partition, OpId)
+            end)
     end,
-    State1 = set_buffer_timer(State#state{txn_buffer = [], last_log_id = OpId}),
+    State1 = set_buffer_timer(State#state{txn_buffer = []}),
     % TODO: @gmcabrita should we reset the heartbeat timer here?
     {noreply, State1};
 
