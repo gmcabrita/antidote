@@ -426,7 +426,6 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
                 materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
             end,
             propagate_new_downstream_ops(Key, Type, NewDownstreamOps),
-            lager:info("Generated a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
             {ok, Snapshot};
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
@@ -633,7 +632,12 @@ propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
         retry_log_append(Node, LogId, Record)
     end, LogRecords),
     lager:info("Finished appending to logging_vnode from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
-    retry_single_commit_sync(UpdatedPartition, Transaction).
+    % spawn a new process to not deadlock the materializer_vnode
+    spawn(fun() ->
+        retry_single_commit_sync(UpdatedPartition, Transaction),
+        lager:info("Finished generating a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps])
+    end),
+    ok.
 
 %% Retries to append a log record indefinitely until it succeeds.
 retry_log_append(Node, LogId, LogRecord) ->
