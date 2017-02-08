@@ -133,16 +133,16 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
     {noreply, State2};
 
 handle_command(txn_send, _Sender, State = #state{txn_buffer = Buffer}) ->
-    OpId = case Buffer of
-        [] -> State#state.last_log_id;
+    FinalState = case Buffer of
+        [] -> State;
         _ ->
             Buf = lists:reverse(Buffer),
             spawn(fun() ->inter_dc_txn_buffer:compact_and_broadcast(Buf) end),
-            inter_dc_txn:last_log_opid(hd(Buffer))
+            OpId = inter_dc_txn:last_log_opid(hd(Buffer)),
+            % Reset heartbeat timer
+            set_heartbeat_timer(State#state{txn_buffer = [], last_log_id = OpId})
     end,
-    State1 = set_buffer_timer(State#state{txn_buffer = [], last_log_id = OpId}),
-    % Reset heartbeat timer, since we just sent a transaction.
-    {noreply, set_heartbeat_timer(State1)};
+    {noreply, set_buffer_timer(FinalState)};
 
 handle_command({stable_time, Time}, _Sender, State) ->
     PingTxn = inter_dc_txn:ping(State#state.partition, State#state.last_log_id, Time),
