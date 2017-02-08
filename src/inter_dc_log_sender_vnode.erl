@@ -137,7 +137,7 @@ handle_command(txn_send, _Sender, State = #state{partition = Partition, txn_buff
         [] -> State#state.last_log_id;
         _ ->
             Buf = lists:reverse(Buffer),
-            OpId = inter_dc_txn:last_log_opid(hd(Buffer))
+            OpId = inter_dc_txn:last_log_opid(hd(Buffer)),
             spawn(fun() ->
                 inter_dc_txn_buffer:compact_and_broadcast(Buf),
                 inter_dc_log_sender_vnode:update_last_log_id(Partition, OpId)
