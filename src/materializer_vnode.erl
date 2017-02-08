@@ -426,6 +426,7 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
                 materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
             end,
             propagate_new_downstream_ops(Key, Type, NewDownstreamOps),
+            lager:info("Generated a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
             {ok, Snapshot};
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
@@ -617,12 +618,11 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 %% Creates a transaction on the fly given previously generated downstream operations.
 -spec propagate_new_downstream_ops(key(), type(), [op()]) -> ok.
 propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
-    {Transaction, _TransactionId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
+    {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
     Ops = lists:map(fun(DownstreamOp) -> {Key, Type, DownstreamOp} end, NewDownstreamOps),
     UpdatedPartition = [{IndexNode, Ops}],
-    TxId = Transaction#transaction.txn_id,
     LogRecords = lists:map(fun(DownstreamOp) ->
         #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = DownstreamOp}}
     end, NewDownstreamOps),
