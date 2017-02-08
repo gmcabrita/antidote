@@ -132,20 +132,17 @@ handle_command({log_event, LogRecord}, _Sender, State) ->
     end,
     {noreply, State2};
 
-handle_command(txn_send, _Sender, State = #state{partition = Partition, txn_buffer = Buffer}) ->
-    case Buffer of
+handle_command(txn_send, _Sender, State = #state{txn_buffer = Buffer}) ->
+    OpId = case Buffer of
         [] -> State#state.last_log_id;
         _ ->
             Buf = lists:reverse(Buffer),
-            OpId = inter_dc_txn:last_log_opid(hd(Buffer)),
-            spawn(fun() ->
-                inter_dc_txn_buffer:compact_and_broadcast(Buf),
-                inter_dc_log_sender_vnode:update_last_log_id(Partition, OpId)
-            end)
+            spawn(fun() ->inter_dc_txn_buffer:compact_and_broadcast(Buf) end),
+            inter_dc_txn:last_log_opid(hd(Buffer))
     end,
-    State1 = set_buffer_timer(State#state{txn_buffer = []}),
-    % TODO: @gmcabrita should we reset the heartbeat timer here?
-    {noreply, State1};
+    State1 = set_buffer_timer(State#state{txn_buffer = [], last_log_id = OpId}),
+    % Reset heartbeat timer, since we just sent a transaction.
+    {noreply, set_heartbeat_timer(State1)};
 
 handle_command({stable_time, Time}, _Sender, State) ->
     PingTxn = inter_dc_txn:ping(State#state.partition, State#state.last_log_id, Time),
