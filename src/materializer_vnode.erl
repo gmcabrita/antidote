@@ -425,15 +425,7 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
             _ ->
                 materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
             end,
-            NewOps = lists:map(fun(Op) ->
-                {K, B} = Key,
-                Object = {K, Type, B},
-                {Update, Args} = Op,
-                {Object, Update, Args}
-            end, NewDownstreamOps),
-            %% TODO: @gmcabrita Is using antidote:update_objects/3 here fine?
-            lager:info("Updated object ~p with ~p", [Key, NewOps]),
-            {ok, _} = antidote:update_objects(ignore, [], NewOps),
+            propagate_new_downstream_ops(Key, Type, NewDownstreamOps),
             {ok, Snapshot};
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
@@ -620,6 +612,45 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 	    true = ets:update_element(OpsCache, Key, [{Length1+?FIRST_OP,{NewId,DownstreamOp}}, {2,{Length1+1,ListLen1}}]);
         false ->
 	    true = ets:update_element(OpsCache, Key, [{Length+?FIRST_OP,{NewId,DownstreamOp}}, {2,{Length+1,ListLen}}])
+    end.
+
+%% Creates a transaction on the fly given previously generated downstream operations.
+-spec propagate_new_downstream_ops(key(), type(), [op()]) -> ok.
+propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
+    {Transaction, _TransactionId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
+    Preflist = log_utilities:get_preflist_from_key(Key),
+    IndexNode = hd(Preflist),
+    Ops = lists:map(fun(DownstreamOp) -> {Key, Type, DownstreamOp} end, NewDownstreamOps),
+    UpdatedPartition = [{IndexNode, Ops}],
+    TxId = Transaction#transaction.txn_id,
+    LogRecords = lists:map(fun(DownstreamOp) ->
+        #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = DownstreamOp}}
+    end, NewDownstreamOps),
+    LogId = log_utilities:get_logid_from_key(Key),
+    [Node] = Preflist,
+    lists:foreach(fun(Record) ->
+        retry_log_append(Node, LogId, Record)
+    end, LogRecords),
+    retry_single_commit_sync(UpdatedPartition, Transaction).
+
+%% Retries to append a log record indefinitely until it succeeds.
+retry_log_append(Node, LogId, LogRecord) ->
+    case logging_vnode:append(Node, LogId, LogRecord) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            lager:info("Failed to append LogRecord on-the-fly, retrying. Node: ~p, LogId: ~p, Reason: ~p~n", [Node, LogId, Reason]),
+            retry_log_append(Node, LogId, LogRecord)
+    end.
+
+retry_single_commit_sync(UpdatedPartition, Transaction) ->
+    case clocksi_vnode:single_commit_sync(UpdatedPartition, Transaction) of
+        {committed, _} -> ok;
+        abort ->
+            lager:warning("On-the-fly transaction commit sync aborted, retrying."),
+            retry_single_commit_sync(UpdatedPartition, Transaction);
+        {error, Reason} ->
+            lager:info("On-the-fly transaction commit sync errored: ~p~n", [Reason]),
+            retry_single_commit_sync(UpdatedPartition, Transaction)
     end.
 
 -ifdef(TEST).
