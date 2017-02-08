@@ -619,6 +619,7 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 -spec propagate_new_downstream_ops(key(), type(), [op()]) -> ok.
 propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
     {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
+    lager:info("Generating a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
     Ops = lists:map(fun(DownstreamOp) -> {Key, Type, DownstreamOp} end, NewDownstreamOps),
@@ -631,6 +632,7 @@ propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
     lists:foreach(fun(Record) ->
         retry_log_append(Node, LogId, Record)
     end, LogRecords),
+    lager:info("Finished appending to logging_vnode from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
     retry_single_commit_sync(UpdatedPartition, Transaction).
 
 %% Retries to append a log record indefinitely until it succeeds.
