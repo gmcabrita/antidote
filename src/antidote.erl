@@ -25,7 +25,7 @@
 -include("antidote.hrl").
 
 %% Export to retrieve total transaction payload metric.
--export([message_payloads/1]).
+-export([message_payloads/0]).
 
 %% API for applications
 -export([ start/0, stop/0,
@@ -515,7 +515,7 @@ execute_ops([{read, {Key, Type}}|Rest], TxId, ReadSet) ->
     {ok, Value} = clocksi_iread(TxId, Key, Type),
     execute_ops(Rest, TxId, [Value|ReadSet]).
 
--spec message_paylods() -> {non_neg_integer, non_neg_integer}.
+-spec message_payloads() -> {non_neg_integer, non_neg_integer}.
 message_payloads() ->
     [[CurrentSizeCCRDT]] = ets:match(txn_payloads, {ccrdt, '$1'}),
     [[CurrentSizeCRDT]] = ets:match(txn_payloads, {crdt, '$1'}),
