@@ -97,7 +97,7 @@ compact(Buffer) ->
     CompactedTxnsWithReplicate = [Txn#interdc_txn{log_records = OtherUpdateOps ++ OpsWithReplicate ++ Records, prev_log_opid = PrevLogOpId}],
     CompactedTxns = [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}],
     %%%% metrics stuff
-    case stable_meta_data_server:read_meta_data(dc_list) of
+    ok = case stable_meta_data_server:read_meta_data(dc_list) of
       {ok, List} ->
         CRDTOpsPayloadSize = byte_size(term_to_binary(OtherUpdateOps)),
         CCRDTOpsWithReplicatePayloadSize = byte_size(term_to_binary(OpsWithReplicate)),
@@ -109,8 +109,9 @@ compact(Buffer) ->
                    {ccrdt, CurrentSizeCCRDT
                            + (CCRDTOpsPayloadSize * (NumRemoteDcs - (?CCRDT_REPLICATION_FACTOR - 1)))
                            + (CCRDTOpsWithReplicatePayloadSize * (?CCRDT_REPLICATION_FACTOR - 1))}),
-        ets:insert(txn_payloads, {crdt, CurrentSizeCRDT + (CRDTOpsPayloadSize * NumRemoteDcs)});
-      _ -> 0
+        ets:insert(txn_payloads, {crdt, CurrentSizeCRDT + (CRDTOpsPayloadSize * NumRemoteDcs)}),
+        ok;
+      _ -> ok
     end,
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     {CompactedTxns, CompactedTxnsWithReplicate}.
