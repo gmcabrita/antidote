@@ -108,6 +108,11 @@ init(_Args) ->
 			  permanent, 5000, supervisor,
 			  [inter_dc_query_response_sup]},
 
+    %% start ets metrics table
+    ets:new(txn_payloads, [set, public, named_table]),
+    ets:insert(txn_payloads, {ccrdt, 0}),
+    ets:insert(txn_payloads, {crdt, 0}),
+
 
     {ok,
      {{one_for_one, 5, 10},

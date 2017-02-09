@@ -96,6 +96,23 @@ compact(Buffer) ->
     OtherUpdateOps = lists:reverse(ReversedOtherUpdateOps),
     CompactedTxnsWithReplicate = [Txn#interdc_txn{log_records = OtherUpdateOps ++ OpsWithReplicate ++ Records, prev_log_opid = PrevLogOpId}],
     CompactedTxns = [Txn#interdc_txn{log_records = OtherUpdateOps ++ Ops ++ Records, prev_log_opid = PrevLogOpId}],
+    %%%% metrics stuff
+    NumRemoteDcs = case stable_meta_data_server:read_meta_data(dc_list) of
+      {ok, List} ->
+        CRDTOpsPayloadSize = byte_size(term_to_binary(OtherUpdateOps)),
+        CCRDTOpsWithReplicatePayloadSize = byte_size(term_to_binary(OpsWithReplicate)),
+        CCRDTOpsPayloadSize = byte_size(term_to_binary(Ops)),
+        [[CurrentSizeCCRDT]] = ets:match(txn_payloads, {ccrdt, '$1'}),
+        [[CurrentSizeCRDT]] = ets:match(txn_payloads, {crdt, '$1'}),
+        NumRemoteDcs = length(List),
+        ets:insert(txn_payloads,
+                   {ccrdt, CurrentSizeCCRDT
+                           + (CCRDTOpsPayloadSize * (NumRemoteDcs - (?CCRDT_REPLICATION_FACTOR - 1)))
+                           + (CCRDTOpsWithReplicatePayloadSize * (?CCRDT_REPLICATION_FACTOR - 1))}),
+        ets:insert(txn_payloads, {crdt, CurrentSizeCRDT + (CCRDTOpsPayloadSize * NumRemoteDcs)});
+      _ -> 0
+    end,
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     {CompactedTxns, CompactedTxnsWithReplicate}.
 
 %% Splits a collection of transaction #log_record{} into a tuple containing:
