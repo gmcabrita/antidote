@@ -182,13 +182,12 @@ compact_log_records(LogRecords) ->
 log(LogAcc, LogRecord) ->
   case log_(LogAcc, LogRecord) of
     {ok, Logs} -> Logs;
-    {rerun, Logs, NewLogRecord} -> log(Logs, NewLogRecord);
-    {err, Logs} -> [LogRecord | Logs]
+    {append, Logs, NewLogRecord} -> [NewLogRecord | Logs]
   end.
 
 %% Helper function for log/2.
--spec log_([#log_record{}], #log_record{}) -> {ok | err, [#log_record{}]}.
-log_([], _) -> {err, []};
+-spec log_([#log_record{}], #log_record{}) -> {ok, [#log_record{}]} | {append, [#log_record{}], #log_record{}}.
+log_([], LogRecord) -> {append, [], LogRecord};
 log_([LogRecord2 | Rest], LogRecord1) ->
   Type = get_type(LogRecord1),
   Op1 = get_op(LogRecord1),
@@ -196,21 +195,29 @@ log_([LogRecord2 | Rest], LogRecord1) ->
   case Type:can_compact(Op2, Op1) of
     true ->
       case Type:compact_ops(Op2, Op1) of
-        {noop} -> {ok, Rest};
-        NewOp ->
-          NewRecord = replace_op(LogRecord1, NewOp),
+        {{noop}, {noop}} -> {ok, Rest};
+        {{noop}, NewOp1} ->
+          NewRecordOp1 = replace_op(LogRecord1, NewOp1),
+          % no need to case match the output of log_/2 here since the oldest operation is a no-op
+          log_(Rest, NewRecordOp1);
+        {NewOp2, {noop}} ->
+          NewRecordOp2 = replace_op(LogRecord2, NewOp2),
+          {ok, [NewRecordOp2 | Rest]};
+        {NewOp2, NewOp1} ->
+          NewRecordOp1 = replace_op(LogRecord1, NewOp1),
+          NewRecordOp2 = replace_op(LogRecord2, NewOp2),
           % Compaction was possible, but we should keep going back in the log,
           % since it may be possible to compact more operations.
-          case log_(Rest, NewRecord) of
-            {ok, List} -> {ok, List};
-            {err, List} -> {ok, [NewRecord | List]}
+          case log_(Rest, NewRecordOp1) of
+            {ok, List} -> {ok, [NewRecordOp2 | List]};
+            {append, List, AppendOp} -> {append, [NewRecordOp2 | List], AppendOp}
           end
       end;
     false ->
       % Could not compact the two operations, but we can still commmute them.
       case log_(Rest, LogRecord1) of
         {ok, List} -> {ok, [LogRecord2 | List]};
-        {err, _} -> {err, [LogRecord2 | Rest]}
+        {append, List, AppendOp} -> {append, [LogRecord2 | List], AppendOp}
       end
   end.
 
@@ -294,12 +301,12 @@ replicate_ops_test() ->
   Type = antidote_ccrdt_topk_with_deletes,
   Buffer = [
     inter_dc_txn_from_ops([{a, b, Type, {add, {0, 5, {foo, 1}}}},
-                           {a, b, Type, {replicate_add, {0, 5, {foo, 1}}}},
-                           {a, b, Type, {replicate_add, {0, 40, {foo, 2}}}},
-                           {a, b, Type, {replicate_add, {0, 50, {foo, 3}}}},
-                           {a, b, Type, {replicate_add, {0, 51, {foo, 4}}}},
-                           {a, b, Type, {replicate_del, {0, #{foo => {foo, 3}}}}},
-                           {a, b, Type, {replicate_add, {0, 100, {foo, 5}}}},
+                           {a, b, Type, {add_r, {0, 5, {foo, 1}}}},
+                           {a, b, Type, {add_r, {0, 40, {foo, 2}}}},
+                           {a, b, Type, {add_r, {0, 50, {foo, 3}}}},
+                           {a, b, Type, {add_r, {0, 51, {foo, 4}}}},
+                           {a, b, Type, {del_r, {0, #{foo => {foo, 3}}}}},
+                           {a, b, Type, {add_r, {0, 100, {foo, 5}}}},
                            {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
                           0,
                           1,
@@ -308,7 +315,7 @@ replicate_ops_test() ->
                           50)
   ],
   Expected = [
-    inter_dc_txn_from_ops([{a, b, Type, {replicate_add, {0, 100, {foo, 5}}}},
+    inter_dc_txn_from_ops([{a, b, Type, {add_r, {0, 100, {foo, 5}}}},
                            {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
                           0,
                           7,
