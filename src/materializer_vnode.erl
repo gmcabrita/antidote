@@ -49,6 +49,7 @@
          read/5,
 	 get_cache_name/2,
 	 store_ss/3,
+     store_ss/4,
          update/2,
 	 tuple_to_key/2,
 	 belongs_to_snapshot_op/3]).
@@ -108,6 +109,14 @@ store_ss(Key, Snapshot, CommitTime) ->
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
     riak_core_vnode_master:command(IndexNode, {store_ss,Key, Snapshot, CommitTime},
+                                        materializer_vnode_master).
+
+%%@doc same as store_ss/3 but allows specifying if the GC should run
+-spec store_ss(key(), #materialized_snapshot{}, snapshot_time(), boolean()) -> ok.
+store_ss(Key, Snapshot, CommitTime, ShouldGc) ->
+    Preflist = log_utilities:get_preflist_from_key(Key),
+    IndexNode = hd(Preflist),
+    riak_core_vnode_master:command(IndexNode, {store_ss,Key, Snapshot, CommitTime, ShouldGc},
                                         materializer_vnode_master).
 
 init([Partition]) ->
@@ -225,6 +234,10 @@ handle_command({update, Key, DownstreamOp}, _Sender, State) ->
     true = op_insert_gc(Key, DownstreamOp,State),
     {reply, ok, State};
 
+handle_command({store_ss, Key, Snapshot, CommitTime, ShouldGc}, _Sender, State) ->
+    internal_store_ss(Key,Snapshot,CommitTime,ShouldGc,State),
+    {noreply, State};
+
 handle_command({store_ss, Key, Snapshot, CommitTime}, _Sender, State) ->
     internal_store_ss(Key,Snapshot,CommitTime,false,State),
     {noreply, State};
@@ -326,7 +339,7 @@ internal_store_ss(Key,Snapshot = #materialized_snapshot{last_op_id = NewOpId},Co
 		   end,
     %% Check if this snapshot is newer than the ones already in the cache. Since reads are concurrent multiple
     %% insert requests for the same snapshot could have occured
-    ShouldInsert = 
+    ShouldInsert =
 	case vector_orddict:size(SnapshotDict) > 0 of
 	    true ->
 		{_Vector, #materialized_snapshot{last_op_id = OldOpId}} = vector_orddict:first(SnapshotDict),
@@ -404,6 +417,16 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
 	    {ok, SnapshotGetResp#snapshot_get_response.materialized_snapshot#materialized_snapshot.value};
 	_Len ->
 	    case clocksi_materializer:materialize(Type, TxId, MinSnapshotTime, SnapshotGetResp) of
+        %% grabs a materialized snapshot that generated extra downstream operations and forces the GC to run
+        {ok, Snapshot, NewLastOp, CommitTime, _NewSS, _OpAddedCount, NewDownstreamOps} ->
+            case TxId of
+            ignore ->
+                internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,true,State);
+            _ ->
+                materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
+            end,
+            propagate_new_downstream_ops(Key, Type, NewDownstreamOps),
+            {ok, Snapshot};
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
 		    %% for the given snapshot_time
@@ -547,7 +570,7 @@ tuple_to_key(Tuple,ToList) ->
     Key = element(1, Tuple),
     {Length,ListLen} = element(2, Tuple),
     OpId = element(3, Tuple),
-    Ops = 
+    Ops =
 	case ToList of
 	    true ->
 		tuple_to_key_int(?FIRST_OP,Length+?FIRST_OP,Tuple,[]);
@@ -565,6 +588,8 @@ tuple_to_key_int(Next,Last,Tuple,Acc) ->
 %% operations for a given key, just perform a read, that will trigger
 %% the GC mechanism.
 -spec op_insert_gc(key(), clocksi_payload(), #mat_state{}) -> true.
+op_insert_gc(_, #clocksi_payload{op_param = noop}, _) ->
+    true;
 op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
     case ets:member(OpsCache, Key) of
 	false ->
@@ -587,6 +612,51 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 	    true = ets:update_element(OpsCache, Key, [{Length1+?FIRST_OP,{NewId,DownstreamOp}}, {2,{Length1+1,ListLen1}}]);
         false ->
 	    true = ets:update_element(OpsCache, Key, [{Length+?FIRST_OP,{NewId,DownstreamOp}}, {2,{Length+1,ListLen}}])
+    end.
+
+%% Creates a transaction on the fly given previously generated downstream operations.
+-spec propagate_new_downstream_ops(key(), type(), [op()]) -> ok.
+propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
+    {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
+    lager:info("Generating a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
+    Preflist = log_utilities:get_preflist_from_key(Key),
+    IndexNode = hd(Preflist),
+    Ops = lists:map(fun(DownstreamOp) -> {Key, Type, DownstreamOp} end, NewDownstreamOps),
+    UpdatedPartition = [{IndexNode, Ops}],
+    LogRecords = lists:map(fun(DownstreamOp) ->
+        #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = DownstreamOp}}
+    end, NewDownstreamOps),
+    LogId = log_utilities:get_logid_from_key(Key),
+    [Node] = Preflist,
+    lists:foreach(fun(Record) ->
+        retry_log_append(Node, LogId, Record)
+    end, LogRecords),
+    lager:info("Finished appending to logging_vnode from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
+    % spawn a new process to not deadlock the materializer_vnode
+    spawn(fun() ->
+        retry_single_commit_sync(UpdatedPartition, Transaction),
+        lager:info("Finished generating a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps])
+    end),
+    ok.
+
+%% Retries to append a log record indefinitely until it succeeds.
+retry_log_append(Node, LogId, LogRecord) ->
+    case logging_vnode:append(Node, LogId, LogRecord) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            lager:warning("Failed to append LogRecord on-the-fly, retrying. Node: ~p, LogId: ~p, Reason: ~p~n", [Node, LogId, Reason]),
+            retry_log_append(Node, LogId, LogRecord)
+    end.
+
+retry_single_commit_sync(UpdatedPartition, Transaction) ->
+    case clocksi_vnode:single_commit_sync(UpdatedPartition, Transaction) of
+        {committed, _} -> ok;
+        abort ->
+            lager:warning("On-the-fly transaction commit sync aborted, retrying."),
+            retry_single_commit_sync(UpdatedPartition, Transaction);
+        {error, Reason} ->
+            lager:warning("On-the-fly transaction commit sync errored, retrying. Error: ~p~n", [Reason]),
+            retry_single_commit_sync(UpdatedPartition, Transaction)
     end.
 
 -ifdef(TEST).

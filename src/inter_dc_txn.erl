@@ -29,8 +29,10 @@
   req_id_to_bin/1,
   ops_by_type/2,
   to_bin/1,
+  to_bin/2,
   from_bin/1,
   partition_to_bin/1,
+  dcid_and_partition_to_bin/2,
   last_log_opid/1,
   is_ping/1]).
 
@@ -89,10 +91,15 @@ to_bin(Txn = #interdc_txn{partition = P}) ->
   Msg = term_to_binary(Txn),
   <<Prefix/binary, Msg/binary>>.
 
+to_bin(Txn = #interdc_txn{partition = P}, DestinationDcId) ->
+  Prefix = dcid_and_partition_to_bin(DestinationDcId, P),
+  Msg = term_to_binary(Txn),
+  <<Prefix/binary, Msg/binary>>.
+
 -spec from_bin(binary()) -> #interdc_txn{}.
 from_bin(Bin) ->
   L = byte_size(Bin),
-  Msg = binary_part(Bin, {?PARTITION_BYTE_LENGTH, L - ?PARTITION_BYTE_LENGTH}),
+  Msg = binary_part(Bin, {?DCID_BYTE_LENGTH + ?PARTITION_BYTE_LENGTH, L - ?PARTITION_BYTE_LENGTH - ?DCID_BYTE_LENGTH}),
   binary_to_term(Msg).
 
 -spec pad(non_neg_integer(), binary()) -> binary().
@@ -119,10 +126,18 @@ pad_or_trim(Width, Binary) ->
 -spec partition_to_bin(partition_id()) -> binary().
 partition_to_bin(Partition) -> pad(?PARTITION_BYTE_LENGTH, binary:encode_unsigned(Partition)).
 
+-spec dcid_to_bin(dcid()) -> binary().
+dcid_to_bin(DcId) -> pad(?DCID_BYTE_LENGTH, binary:encode_unsigned(erlang:phash2(DcId))).
+
+-spec dcid_and_partition_to_bin(dcid(), partition_id()) -> binary().
+dcid_and_partition_to_bin(DcId, Partition) ->
+    BinDcId = dcid_to_bin(DcId),
+    BinPartition = partition_to_bin(Partition),
+    <<BinDcId/binary, BinPartition/binary>>.
+
 %% These are interdc message ids, as non-neg-integers, encoded as unsigned
 %% They are of a fixed binary size, looping back to zero
 %% once the max size is reached (by triming the bits on the left)
 -spec req_id_to_bin(non_neg_integer()) -> binary().
 req_id_to_bin(ReqId) ->
     pad_or_trim(?REQUEST_ID_BYTE_LENGTH, binary:encode_unsigned(ReqId)).
-			   

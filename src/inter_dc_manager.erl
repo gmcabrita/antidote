@@ -67,6 +67,8 @@ observe_dc(Desc = #descriptor{dcid = DCID, partition_num = PartitionsNumRemote, 
 		true -> ok;
 		false ->
 		    lager:info("Observing DC ~p", [DCID]),
+		    dc_meta_data_utilities:add_dc(DCID), % TODO: @gmcabrita this data is currently never removed.
+		    lager:info("Added ~p as to list of DCs.", [DCID]),
 		    dc_utilities:ensure_all_vnodes_running_master(inter_dc_log_sender_vnode_master),
 		    %% Announce the new publisher addresses to all subscribers in this DC.
 		    %% Equivalently, we could just pick one node in the DC and delegate all the subscription work to it.
@@ -81,7 +83,7 @@ connect_nodes([], _DCID, _LogReaders, _Publishers, _Desc, _Retries) ->
     ok;
 connect_nodes(_Nodes, _DCID, _LogReaders, _Publishers, Desc, 0) ->
     ok = forget_dcs([Desc]),
-    {error, connection_error};    
+    {error, connection_error};
 connect_nodes([Node|Rest], DCID, LogReaders, Publishers, Desc, Retries) ->
     case rpc:call(Node, inter_dc_query, add_dc, [DCID, LogReaders], ?COMM_TIMEOUT) of
 	ok ->

@@ -4,6 +4,7 @@
 -include("inter_dc_repl.hrl").
 
 -export([
+	 add_dc/1,
 	 dc_start_success/0,
 	 is_restart/0,
 	 load_env_meta_data/0,
@@ -157,7 +158,7 @@ get_partition_at_index(Index) ->
 	    ok = load_partition_meta_data(),
 	    get_partition_at_index(Index)
     end.
-	
+
 %% Store an external dc descriptor
 -spec store_dc_descriptors([#descriptor{}]) -> ok.
 store_dc_descriptors(Descriptors) ->
@@ -185,7 +186,7 @@ get_dc_descriptors() ->
 set_dc_partitions(PartitionList, DCID) ->
     NumPartitions = length(PartitionList),
     PartitionTuple = list_to_tuple(PartitionList),
-    PartitionDict = 
+    PartitionDict =
 	lists:foldl(fun(Part, Acc) ->
 			    dict:store(Part,Part,Acc)
 		    end, dict:new(), PartitionList),
@@ -197,6 +198,10 @@ set_dc_partitions(PartitionList, DCID) ->
     _MyDCID = get_my_dc_id(),
     %% Add the new one to the list that includes you
     ok = stable_meta_data_server:broadcast_meta_data_merge(dc_list_w_me, DCID, fun ordsets:add_element/2, fun ordsets:new/0).
+
+-spec add_dc(dcid()) -> ok.
+add_dc(DcId) ->
+	ok = stable_meta_data_server:broadcast_meta_data_merge(dc_list, DcId, fun ordsets:add_element/2, fun ordsets:new/0).
 
 %% Get an ordered list of all the dc ids
 -spec get_dc_ids(boolean()) -> [dcid()].
@@ -232,4 +237,3 @@ key_as_integer(Key) when is_binary(Key) ->
 key_as_integer(Key) ->
     key_as_integer(term_to_binary(Key)).
 
-    

@@ -53,7 +53,7 @@
 %% that read.
 -define(SPIN_WAIT, 10).
 %% HEARTBEAT_PERIOD: Period of sending the heartbeat messages in interDC layer
--define(HEARTBEAT_PERIOD, 1000).
+-define(HEARTBEAT_PERIOD, 1500).
 %% VECTORCLOCK_UPDATE_PERIOD: Period of updates of the stable snapshot per partition
 -define(VECTORCLOCK_UPDATE_PERIOD, 100).
 %% This is the time that nodes will sleep inbetween sending meta-data
@@ -78,6 +78,12 @@
 -define(REQUEST_TIMEOUT, 500000). % In Microseconds
 %% Frequency at which manager requests remote resources.
 -define(TRANSFER_FREQ, 100). %in Milliseconds
+
+% Allow antidote to buffer collections of transactions for a brief duration.
+% This is used to compact update operations that affect computational CRDTs.
+-define(BUFFER_TXNS, true).
+-define(BUFFER_TXN_TIMER, 200). % buffer duration in milliseconds
+-define(CCRDT_REPLICATION_FACTOR, 2). % replication factor for CCRDT replicate ops
 
 %% The definition "FIRST_OP" is used by the materializer.
 %% The materialzer caches a tuple for each key containing
