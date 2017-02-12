@@ -13,6 +13,8 @@
 -define(ERROR_MSG,5).
 -define(BCOUNTER_REQUEST,6).
 
+%% The number of bytes the phashed dcid occupies in a message
+-define(DCID_BYTE_LENGTH, 4).
 %% The number of bytes a parition id is in a message
 -define(PARTITION_BYTE_LENGTH, 20).
 %% the number of bytes a message id is
