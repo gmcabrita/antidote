@@ -53,7 +53,7 @@
 %% that read.
 -define(SPIN_WAIT, 10).
 %% HEARTBEAT_PERIOD: Period of sending the heartbeat messages in interDC layer
--define(HEARTBEAT_PERIOD, 1000).
+-define(HEARTBEAT_PERIOD, 1500).
 %% VECTORCLOCK_UPDATE_PERIOD: Period of updates of the stable snapshot per partition
 -define(VECTORCLOCK_UPDATE_PERIOD, 100).
 %% This is the time that nodes will sleep inbetween sending meta-data
