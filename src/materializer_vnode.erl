@@ -49,7 +49,7 @@
          read/5,
 	 get_cache_name/2,
 	 store_ss/3,
-     store_ss/4,
+     store_ss/5,
          update/2,
 	 tuple_to_key/2,
 	 belongs_to_snapshot_op/3]).
@@ -112,11 +112,11 @@ store_ss(Key, Snapshot, CommitTime) ->
                                         materializer_vnode_master).
 
 %%@doc same as store_ss/3 but allows specifying if the GC should run
--spec store_ss(key(), #materialized_snapshot{}, snapshot_time(), boolean()) -> ok.
-store_ss(Key, Snapshot, CommitTime, ShouldGc) ->
+-spec store_ss(key(), #materialized_snapshot{}, snapshot_time(), boolean(), [{key(), type(), [op()]}]) -> ok.
+store_ss(Key, Snapshot, CommitTime, ShouldGc, NewOps) ->
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
-    riak_core_vnode_master:command(IndexNode, {store_ss,Key, Snapshot, CommitTime, ShouldGc},
+    riak_core_vnode_master:command(IndexNode, {store_ss,Key, Snapshot, CommitTime, ShouldGc, NewOps},
                                         materializer_vnode_master).
 
 init([Partition]) ->
@@ -234,8 +234,8 @@ handle_command({update, Key, DownstreamOp}, _Sender, State) ->
     true = op_insert_gc(Key, DownstreamOp,State),
     {reply, ok, State};
 
-handle_command({store_ss, Key, Snapshot, CommitTime, ShouldGc}, _Sender, State) ->
-    internal_store_ss(Key,Snapshot,CommitTime,ShouldGc,State),
+handle_command({store_ss, Key, Snapshot, CommitTime, ShouldGc, NewOps}, _Sender, State) ->
+    internal_store_ss(Key,Snapshot,CommitTime,ShouldGc,State,NewOps),
     {noreply, State};
 
 handle_command({store_ss, Key, Snapshot, CommitTime}, _Sender, State) ->
@@ -330,7 +330,11 @@ terminate(_Reason, _State=#mat_state{ops_cache=OpsCache,snapshot_cache=SnapshotC
 %%---------------- Internal Functions -------------------%%
 
 -spec internal_store_ss(key(), #materialized_snapshot{}, snapshot_time(), boolean(), #mat_state{}) -> boolean().
-internal_store_ss(Key,Snapshot = #materialized_snapshot{last_op_id = NewOpId},CommitTime,ShouldGc,State = #mat_state{snapshot_cache=SnapshotCache}) ->
+internal_store_ss(Key,Snapshot,CommitTime,ShouldGc,State) ->
+    internal_store_ss(Key, Snapshot, CommitTime, ShouldGc, State, []).
+
+-spec internal_store_ss(key(), #materialized_snapshot{}, snapshot_time(), boolean(), #mat_state{}, [{key(), type(), [op()]}]) -> boolean().
+internal_store_ss(Key,Snapshot = #materialized_snapshot{last_op_id = NewOpId},CommitTime,ShouldGc,State = #mat_state{snapshot_cache=SnapshotCache}, GeneratedOps) ->
     SnapshotDict = case ets:lookup(SnapshotCache, Key) of
 		       [] ->
 			   vector_orddict:new();
@@ -349,7 +353,12 @@ internal_store_ss(Key,Snapshot = #materialized_snapshot{last_op_id = NewOpId},Co
     case (ShouldInsert or ShouldGc)of
 	true ->
 	    SnapshotDict1 = vector_orddict:insert_bigger(CommitTime,Snapshot,SnapshotDict),
-	    snapshot_insert_gc(Key,SnapshotDict1,ShouldGc,State);
+	    true = snapshot_insert_gc(Key,SnapshotDict1,ShouldGc,State),
+        case GeneratedOps of
+            [] -> true;
+            [{Key,Type,NewDownstreamOps}] ->
+                propagate_new_downstream_ops(Key, Type, NewDownstreamOps)
+        end;
 	false ->
 	    false
     end.
@@ -417,16 +426,23 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
 	    {ok, SnapshotGetResp#snapshot_get_response.materialized_snapshot#materialized_snapshot.value};
 	_Len ->
 	    case clocksi_materializer:materialize(Type, TxId, MinSnapshotTime, SnapshotGetResp) of
-        %% grabs a materialized snapshot that generated extra downstream operations and forces the GC to run
-        {ok, Snapshot, NewLastOp, CommitTime, _NewSS, _OpAddedCount, NewDownstreamOps} ->
-            case TxId of
-            ignore ->
-                internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,true,State);
-            _ ->
-                materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime, true)
-            end,
-            propagate_new_downstream_ops(Key, Type, NewDownstreamOps),
-            {ok, Snapshot};
+        {ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount, NewDownstreamOps} ->
+            case CommitTime of
+                ignore ->
+                    {ok, Snapshot};
+                _ ->
+                    case (NewSS and SnapshotGetResp#snapshot_get_response.is_newest_snapshot and (OpAddedCount >= ?MIN_OP_STORE_SS)) orelse ShouldGc of
+                        true ->
+                            case TxId of
+                                ignore ->
+                                    internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,ShouldGc,State,[{Key, Type, NewDownstreamOps}]);
+                                _ ->
+                                    materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime,ShouldGc,[{Key,Type,NewDownstreamOps}])
+                            end;
+                        _ -> ok
+                    end,
+                    {ok, Snapshot}
+            end;
 		{ok, Snapshot, NewLastOp, CommitTime, NewSS, OpAddedCount} ->
 		    %% the following checks for the case there were no snapshots and there were operations, but none was applicable
 		    %% for the given snapshot_time
@@ -618,7 +634,6 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 -spec propagate_new_downstream_ops(key(), type(), [op()]) -> ok.
 propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
     {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
-    lager:info("Generating a new transaction on-the-fly from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
     Ops = lists:map(fun(DownstreamOp) -> {Key, Type, DownstreamOp} end, NewDownstreamOps),
@@ -631,7 +646,6 @@ propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
     lists:foreach(fun(Record) ->
         retry_log_append(Node, LogId, Record)
     end, LogRecords),
-    lager:info("Finished appending to logging_vnode from, Key: ~p, Ops: ~p~n", [Key, NewDownstreamOps]),
     % spawn a new process to not deadlock the materializer_vnode
     spawn(fun() ->
         retry_single_commit_sync(UpdatedPartition, Transaction),
