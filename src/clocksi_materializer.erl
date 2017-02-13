@@ -25,6 +25,7 @@
 -endif.
 
 -export([new/1,
+         apply_operations/5,
          materialize/4,
          materialize_eager/3]).
 
