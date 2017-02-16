@@ -298,16 +298,16 @@ no_ccrdts_test() ->
   ?assertEqual(compact(Buffer2), {Expected, Expected}).
 
 replicate_ops_test() ->
-  Type = antidote_ccrdt_topk_with_deletes,
+  Type = antidote_ccrdt_topk_rmv,
   Buffer = [
     inter_dc_txn_from_ops([{a, b, Type, {add, {0, 5, {foo, 1}}}},
                            {a, b, Type, {add_r, {0, 5, {foo, 1}}}},
-                           {a, b, Type, {add_r, {0, 40, {foo, 2}}}},
-                           {a, b, Type, {add_r, {0, 50, {foo, 3}}}},
-                           {a, b, Type, {add_r, {0, 51, {foo, 4}}}},
-                           {a, b, Type, {del_r, {0, #{foo => {foo, 3}}}}},
-                           {a, b, Type, {add_r, {0, 100, {foo, 5}}}},
-                           {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
+                           {a, b, Type, {add, {0, 50, {foo, 2}}}},
+                           {a, b, Type, {add_r, {0, 40, {foo, 3}}}},
+                           {a, b, Type, {add, {0, 51, {foo, 4}}}},
+                           {a, b, Type, {rmv, {0, #{foo => 4}}}},
+                           {a, b, Type, {add, {0, 100, {foo, 5}}}},
+                           {a, b, Type, {rmv, {0, #{foo => 4}}}}],
                           0,
                           1,
                           1,
@@ -315,33 +315,26 @@ replicate_ops_test() ->
                           50)
   ],
   Expected = [
-    inter_dc_txn_from_ops([{a, b, Type, {add_r, {0, 100, {foo, 5}}}},
-                           {a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
+    inter_dc_txn_from_ops([{a, b, Type, {add, {0, 100, {foo, 5}}}},
+                           {a, b, Type, {rmv, {0, #{foo => 4}}}}],
                           0,
                           7,
                           1,
                           200,
                           50)
   ],
-  ExpectedWithoutReplicate = [
-    inter_dc_txn_from_ops([{a, b, Type, {del, {0, #{foo => {foo, 4}}}}}],
-                          0,
-                          8,
-                          1,
-                          200,
-                          50)
-  ],
+  ExpectedWithoutReplicate = Expected,
   compare_txn_sets(compact(Buffer), {ExpectedWithoutReplicate, Expected}).
 
 different_ccrdt_types_test() ->
-  TopkD = antidote_ccrdt_topk_with_deletes,
+  TopkD = antidote_ccrdt_topk_rmv,
   Topk = antidote_ccrdt_topk,
   Average = antidote_ccrdt_average,
   Buffer = [
     inter_dc_txn_from_ops([{topkd, bucket, TopkD, {add, {0, 5, {foo, 1}}}},
                            {topk, bucket, Topk, {add, {100, 5}}},
                            {average, bucket, Average, {add, {10, 1}}},
-                           {topkd, bucket, TopkD, {del, {0, #{foo => {foo, 1}}}}},
+                           {topkd, bucket, TopkD, {rmv, {0, #{foo => {foo, 1}}}}},
                            {topk, bucket, Topk, {add, {100, 42}}},
                            {average, bucket, Average, {add, {100, 2}}}],
                           0,
@@ -351,7 +344,7 @@ different_ccrdt_types_test() ->
                           50)
   ],
   Expected = [
-    inter_dc_txn_from_ops([{topkd, bucket, TopkD, {del, {0, #{foo => {foo, 1}}}}},
+    inter_dc_txn_from_ops([{topkd, bucket, TopkD, {rmv, {0, #{foo => {foo, 1}}}}},
                            {topk, bucket, Topk, {add, {100, 42}}},
                            {average, bucket, Average, {add, {110, 3}}}],
                           0,
@@ -363,10 +356,10 @@ different_ccrdt_types_test() ->
   ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 txn_ccrdt_mixed_with_crdt_test() ->
-  CCRDT = antidote_ccrdt_topk_with_deletes,
+  CCRDT = antidote_ccrdt_topk_rmv,
   Buffer = [
     inter_dc_txn_from_ops([{top, bucket, CCRDT, {add, {0, 5, {foo, 1}}}},
-                           {top, bucket, CCRDT, {del, {0, #{foo => {foo, 1}}}}}],
+                           {top, bucket, CCRDT, {rmv, {0, #{foo => {foo, 1}}}}}],
                           0,
                           1,
                           1,
@@ -381,7 +374,7 @@ txn_ccrdt_mixed_with_crdt_test() ->
                           150)
   ],
   Expected = [
-    inter_dc_txn_from_ops([{top, bucket, CCRDT, {del, {0, #{foo => {foo, 1}}}}},
+    inter_dc_txn_from_ops([{top, bucket, CCRDT, {rmv, {0, #{foo => {foo, 1}}}}},
                            {a, bucket, not_a_ccrdt, {add, {100, 5, {foo, 1}}}},
                            {a, bucket, not_a_ccrdt, {add, {77, 5, {foo, 1}}}}],
                           0,
@@ -393,10 +386,10 @@ txn_ccrdt_mixed_with_crdt_test() ->
   ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 compactable_txn_test() ->
-  CCRDT = antidote_ccrdt_topk_with_deletes,
+  CCRDT = antidote_ccrdt_topk_rmv,
   Buffer = [
     inter_dc_txn_from_ops([{top, bucket, CCRDT, {add, {0, 5, {foo, 1}}}},
-                           {top, bucket, CCRDT, {del, {0, #{foo => {foo, 1}}}}}],
+                           {top, bucket, CCRDT, {rmv, {0, #{foo => {foo, 1}}}}}],
                           0,
                           1,
                           1,
@@ -404,7 +397,7 @@ compactable_txn_test() ->
                           200)
   ],
   Expected = [
-    inter_dc_txn_from_ops([{top, bucket, CCRDT, {del, {0, #{foo => {foo, 1}}}}}],
+    inter_dc_txn_from_ops([{top, bucket, CCRDT, {rmv, {0, #{foo => {foo, 1}}}}}],
                           0,
                           2,
                           1,
@@ -414,7 +407,7 @@ compactable_txn_test() ->
   ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 two_ccrdt_txn_not_compactable_test() ->
-  CCRDT = antidote_ccrdt_topk_with_deletes,
+  CCRDT = antidote_ccrdt_topk_rmv,
   Buffer = [
     inter_dc_txn_from_ops([{top, bucket, CCRDT, {add, {0, 5, {foo, 1}}}},
                            {top, bucket, CCRDT, {add, {1, 5, {foo, 1}}}},
@@ -457,7 +450,7 @@ two_ccrdt_txn_not_compactable_test() ->
   ?assertEqual(compact(Buffer), {Expected, Expected}).
 
 single_ccrdt_txn_not_compactable_test() ->
-  CCRDT = antidote_ccrdt_topk_with_deletes,
+  CCRDT = antidote_ccrdt_topk_rmv,
   Buffer = [
     inter_dc_txn_from_ops([{top, bucket, CCRDT, {add, {0, 5, {foo, 1}}}},
                            {top, bucket, CCRDT, {add, {1, 5, {foo, 1}}}},
