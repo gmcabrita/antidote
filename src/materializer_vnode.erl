@@ -420,7 +420,6 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
         {ok, Snapshot, NewLastOp, CommitTime, _NewSS, _OpAddedCount, _NewDownstreamOps} ->
             %%% we've read from a C-CRDT that generated extra downstream operations after the materialize
             %%% so we trigger the GC to avoid recomputing
-            %%% TODO: @gmcabrita, should ALL reads to C-CRDTs trigger the GC? (instead of just the ones that generated extra downstream operations...)
             case TxId of
                 ignore ->
                     internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,true,State);
@@ -436,6 +435,8 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
 			ignore ->
 			    {ok, Snapshot};
 			_ ->
+                % trigger GC if type is ccrdt
+                ShouldGc1 = ShouldGc orelse antidote_ccrdt:is_type(Type),
 			    case (NewSS and SnapshotGetResp#snapshot_get_response.is_newest_snapshot and
 				  (OpAddedCount >= ?MIN_OP_STORE_SS)) orelse ShouldGc of
 				%% Only store the snapshot if it would be at the end of the list and has new operations added to the
@@ -443,9 +444,9 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
 				true ->
 				    case TxId of
 					ignore ->
-					    internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,ShouldGc,State);
+					    internal_store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp,value = Snapshot},CommitTime,ShouldGc1,State);
 					_ ->
-					    materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime)
+					    materializer_vnode:store_ss(Key,#materialized_snapshot{last_op_id = NewLastOp, value = Snapshot},CommitTime,ShouldGc1)
 				    end;
 				_ ->
 				    ok
@@ -517,27 +518,29 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #mat_state{snapshot_cache = Snap
 			 end,
 	    NewTuple = erlang:make_tuple(?FIRST_OP+NewListLen,0,[{1,Key},{2,{NewLength,NewListLen}},{3,OpId}|PrunedOps]),
 	    true = ets:insert(OpsCache, NewTuple),
-        %%% TODO: @gmcabrita, try to find the Type before doing all this stuff...
         {_, _, _, _, OpsDictList} = tuple_to_key(OpsDict,true),
-        PrunedOpsList = lists:map(fun({_, Op}) -> Op end, PrunedOps),
-        {_, OldestSnapshotTuple} = vector_orddict:last(OldSnapshotDict),
-        {_, _, OldestSnapshot} = OldestSnapshotTuple,
-        Ops = gb_sets:to_list(gb_sets:difference(gb_sets:from_list(OpsDictList),
-                                                      gb_sets:from_list(PrunedOpsList))),
-        DeltaOps = lists:map(fun({_, Op}) -> Op end, Ops),
-        case DeltaOps of
-            [] -> ok;
-            [SomeOp | _] ->
-                Type = SomeOp#clocksi_payload.type,
-                case antidote_ccrdt:is_type(Type) of
-                    true ->
+        Type = case OpsDictList of
+            [] -> nil;
+            [{_, O} | _] -> O#clocksi_payload.type
+        end,
+        case antidote_ccrdt:is_partially_incremental(Type) of
+            true ->
+                PrunedOpsList = lists:map(fun({_, Op}) -> Op end, PrunedOps),
+                {_, OldestSnapshotTuple} = vector_orddict:last(OldSnapshotDict),
+                {_, _, OldestSnapshot} = OldestSnapshotTuple,
+                Ops = gb_sets:to_list(gb_sets:difference(gb_sets:from_list(OpsDictList),
+                                                              gb_sets:from_list(PrunedOpsList))),
+                DeltaOps = lists:map(fun({_, Op}) -> Op end, Ops),
+                case DeltaOps of
+                    [] -> ok;
+                    _ ->
                         case clocksi_materializer:apply_operations(Type, OldestSnapshot, 0, DeltaOps, []) of
                             {ok, _, _, GeneratedDownstreamOps} ->
                                 propagate_new_downstream_ops(Key, Type, GeneratedDownstreamOps);
                             _ -> ok
-                        end;
-                    false -> ok
-                end
+                        end
+                end;
+            false -> ok
         end,
         true;
 	false ->
