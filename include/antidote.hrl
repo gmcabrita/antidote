@@ -83,7 +83,7 @@
 % This is used to compact update operations that affect computational CRDTs.
 -define(BUFFER_TXNS, true).
 -define(BUFFER_TXN_TIMER, 200). % buffer duration in milliseconds
--define(CCRDT_REPLICATION_FACTOR, 2). % replication factor for CCRDT replicate ops
+-define(CCRDT_REPLICATION_FACTOR, 1). % replication factor for CCRDT replicate ops
 
 %% The definition "FIRST_OP" is used by the materializer.
 %% The materialzer caches a tuple for each key containing
