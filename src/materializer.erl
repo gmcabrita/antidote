@@ -36,14 +36,16 @@
 create_snapshot(Type) ->
     Type:new().
 
-%% @doc Applies an operation to a snapshot of a crdt. 
+%% @doc Applies an operation to a snapshot of a crdt.
 %%      This function yields an error if the crdt does not have a corresponding update operation.
--spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {error, reason()}.
+-spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {ok, snapshot(), [op()]} | {error, reason()}.
 update_snapshot(Type, Snapshot, Op) ->
     try
-        Type:update(Op, Snapshot)
+        case Type:update(Op, Snapshot) of
+            Other -> Other
+        end
     catch
-        _:_ -> 
+        _:_ ->
             {error, unexpected_format}
     end.
 
@@ -55,6 +57,8 @@ materialize_eager(Type, Snapshot, [Op | Rest]) ->
     case update_snapshot(Type, Snapshot, Op) of
         {error, Reason} ->
             {error, Reason};
+        {ok, Result, _Ops} ->
+            materialize_eager(Type, Result, Rest);
         {ok, Result} ->
             materialize_eager(Type, Result, Rest)
     end.
@@ -77,10 +81,10 @@ check_operations([Op | Rest]) ->
 check_operation(Op) ->
     case Op of
         {update, {_, Type, Update}} ->
-            (antidote_crdt:is_type(Type)) andalso
+            (antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type)) andalso
                 Type:is_operation(Update);
         {read, {_, Type}} ->
-            (antidote_crdt:is_type(Type));
+            (antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type));
         _ ->
             false
     end.

@@ -285,7 +285,7 @@ handle_command({start_timer, Sender}, _, State = #state{partition=Partition, op_
     end,
     {noreply, State};
 
-%% @doc Read command: Returns the phyiscal time of the 
+%% @doc Read command: Returns the phyiscal time of the
 %%      clocksi vnode for which no transactions will commit with smaller time
 %%      Output: {ok, Time}
 handle_command({send_min_prepared, Time}, _Sender,
@@ -324,7 +324,7 @@ handle_command({read_from, LogId, _From}, _Sender,
         {ok, Log} ->
             ok = disk_log:sync(Log),
 	    %% TODO should continue reading with the continuation??
-            {Continuation, Ops} = 
+            {Continuation, Ops} =
                 case disk_log:chunk(Log, Lastread) of
                     {error, Reason} -> {error, Reason};
                     {C, O} -> {C,O};
@@ -359,44 +359,46 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
 	    MyDCID = dc_meta_data_utilities:get_my_dc_id(),
 	    %% all operations update the per log, operation id
 	    OpId = get_op_id(OpIdTable, {LogId, MyDCID}),
-	    #op_number{local = Local, global = Global} = OpId,
-	    NewOpId = OpId#op_number{local =  Local + 1, global = Global + 1},
-	    true = update_ets_op_id({LogId,MyDCID},NewOpId,OpIdTable),
-	    %% non commit operations update the bucket id number to keep track
-	    %% of the number of updates per bucket
-	    NewBucketOpId = 
-		case LogOperation#log_operation.op_type of
-		    update ->
-			Bucket = (LogOperation#log_operation.log_payload)#update_log_payload.bucket,
-			BOpId = get_op_id(OpIdTable, {LogId,Bucket,MyDCID}),
-			#op_number{local = BLocal, global = BGlobal} = BOpId,
-			NewBOpId = BOpId#op_number{local = BLocal + 1, global = BGlobal + 1},
-			true = update_ets_op_id({LogId,Bucket,MyDCID},NewBOpId,OpIdTable),
-			NewBOpId;
-		    _ ->
-			NewOpId
-		end,		    
-            LogRecord = #log_record{
-              version = log_utilities:log_record_version(),
-              op_number = NewOpId,
-              bucket_op_number = NewBucketOpId,
-              log_operation = LogOperation},
-            case insert_log_record(Log, LogId, LogRecord, EnableLog) of
-                {ok, NewOpId} ->
-		    inter_dc_log_sender_vnode:send(Partition, LogRecord),
-		    case Sync of
-			true ->
-			    case disk_log:sync(Log) of
-				ok ->
-				    {reply, {ok, OpId}, State};
-				{error, Reason} ->
-				    {reply, {error, Reason}, State}
-			    end;
-			false ->
-			    {reply, {ok, OpId}, State}
-		    end;
-                {error, Reason} ->
-                    {reply, {error, Reason}, State}
+
+            case LogOperation#log_operation.op_type == update andalso (LogOperation#log_operation.log_payload)#update_log_payload.op == noop of
+                true ->
+                    {reply, {ok, OpId}, State};
+                false ->
+                    #op_number{local = Local, global = Global} = OpId,
+                    NewOpId = OpId#op_number{local =  Local + 1, global = Global + 1},
+                    true = update_ets_op_id({LogId,MyDCID},NewOpId,OpIdTable),
+                    %% non commit operations update the bucket id number to keep track
+                    %% of the number of updates per bucket
+                    NewBucketOpId =
+                    case LogOperation#log_operation.op_type of
+                        update ->
+                            Bucket = (LogOperation#log_operation.log_payload)#update_log_payload.bucket,
+                            BOpId = get_op_id(OpIdTable, {LogId,Bucket,MyDCID}),
+                            #op_number{local = BLocal, global = BGlobal} = BOpId,
+                            NewBOpId = BOpId#op_number{local = BLocal + 1, global = BGlobal + 1},
+                            true = update_ets_op_id({LogId,Bucket,MyDCID},NewBOpId,OpIdTable),
+                            NewBOpId;
+                        _ -> NewOpId
+                    end,
+                    LogRecord = #log_record{
+                      version = log_utilities:log_record_version(),
+                      op_number = NewOpId,
+                      bucket_op_number = NewBucketOpId,
+                      log_operation = LogOperation},
+                    case insert_log_record(Log, LogId, LogRecord, EnableLog) of
+                        {ok, NewOpId} ->
+                            inter_dc_log_sender_vnode:send(Partition, LogRecord),
+                            case Sync of
+                                true ->
+                                    case disk_log:sync(Log) of
+                                        ok -> {reply, {ok, OpId}, State};
+                                        {error, Reason} -> {reply, {error, Reason}, State}
+                                    end;
+                                false -> {reply, {ok, OpId}, State}
+                            end;
+                        {error, Reason} ->
+                            {reply, {error, Reason}, State}
+                    end
             end;
         {error, Reason} ->
             {reply, {error, Reason}, State}
@@ -430,7 +432,7 @@ handle_command({append_group, LogId, LogRecordList, _IsLocal = false, Sync}, _Se
 				    NewOpId = OpId#op_number{global = Global + 1},
 				    %% Should assign the opid as follows if this function starts being
 				    %% used for operations generated locally
-				    %% NewOpId = 
+				    %% NewOpId =
 				    %% 	case IsLocal of
 				    %% 	    true ->
 				    %% 		OpId#op_number{local =  Local + 1, global = Global + 1};
@@ -539,7 +541,7 @@ read_internal(_Log, error, Ops) ->
 read_internal(_Log, eof, Ops) ->
     {eof, Ops};
 read_internal(Log, Continuation, Ops) ->
-    {NewContinuation, NewOps} = 
+    {NewContinuation, NewOps} =
 	case disk_log:chunk(Log, Continuation) of
 	    {C, O} -> {C,O};
 	    {C, O, _} -> {C,O};
@@ -716,7 +718,7 @@ handle_commit(TxId, OpPayload, T, Key, MinSnapshotTime, Ops, CommittedOpsDict) -
     #commit_log_payload{commit_time = {DcId, TxCommitTime}, snapshot_time = SnapshotTime} = OpPayload,
     case dict:find(TxId, Ops) of
         {ok, OpsList} ->
-	    NewCommittedOpsDict = 
+	    NewCommittedOpsDict =
 		lists:foldl(fun(#update_log_payload{key = KeyInternal, type = Type, op = Op}, Acc) ->
 				    case ((MinSnapshotTime == undefined) orelse
 									   (not vectorclock:all_dots_greater(SnapshotTime, MinSnapshotTime))) of
@@ -827,7 +829,7 @@ no_elements([], _Map) ->
     true;
 no_elements([LogId|Rest], Map) ->
     case dict:find(LogId, Map) of
-        {ok, Log} -> 
+        {ok, Log} ->
             case disk_log:chunk(Log, start) of
                 eof ->
                     no_elements(Rest, Map);
@@ -905,7 +907,7 @@ join_logs([{_Preflist, Log}|T], F, Acc) ->
     join_logs(T, F, JointAcc).
 
 fold_log(Log, Continuation, F, Acc) ->
-    case  disk_log:chunk(Log,Continuation) of 
+    case  disk_log:chunk(Log,Continuation) of
         eof ->
             Acc;
         {Next,Ops} ->

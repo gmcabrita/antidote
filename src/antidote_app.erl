@@ -20,6 +20,7 @@
 -module(antidote_app).
 
 -behaviour(application).
+-include("antidote.hrl").
 
 %% Application callbacks
 -export([start/2, stop/1]).

@@ -25,6 +25,7 @@
 -endif.
 
 -export([new/1,
+         apply_operations/5,
          materialize/4,
          materialize_eager/3]).
 
@@ -84,9 +85,13 @@ materialize(Type, TxId, MinSnapshotTime,
     {ok, OpList, NewLastOp, LastOpCt, IsNewSS} =
 	materialize_intern(Type, [], LastOp, FirstId, SnapshotCommitTime, MinSnapshotTime,
 			   Ops, TxId, SnapshotCommitTime,false,0),
-    case apply_operations(Type, Snapshot, 0, OpList) of
+    case apply_operations(Type, Snapshot, 0, OpList, []) of
 	{ok, NewSS, Count} ->
 	    {ok, NewSS, NewLastOp, LastOpCt, IsNewSS, Count};
+    {ok, NewSS, Count, []} ->
+        {ok, NewSS, NewLastOp, LastOpCt, IsNewSS, Count};
+    {ok, NewSS, Count, NewDownstreamOps} ->
+        {ok, NewSS, NewLastOp, LastOpCt, IsNewSS, Count, NewDownstreamOps};
 	{error, Reason} ->
 	    {error, Reason}
     end.
@@ -97,16 +102,21 @@ materialize(Type, TxId, MinSnapshotTime,
 %%      Snapshot: The initial snapshot to apply the operations to
 %%      Count: Should be input as 0, this will count the number of ops applied
 %%      OpList: The list of operations to apply
+%%      GeneratedDownstreamOps: The list of operations that were generated after applying updates (only applies to certain CCRDTs)
 %%      Output: Either the snapshot with the operations applied to
 %%      it, or an error.
--spec apply_operations(type(), snapshot(), non_neg_integer(), [clocksi_payload()]) ->
-			      {ok, snapshot(), non_neg_integer()} | {error, reason()}.
-apply_operations(_Type,Snapshot,Count,[]) ->
+-spec apply_operations(type(), snapshot(), non_neg_integer(), [clocksi_payload()], [op()]) ->
+			      {ok, snapshot(), non_neg_integer()} | {ok, snapshot(), non_neg_integer(), [op()]} | {error, reason()}.
+apply_operations(_Type,Snapshot,Count,[], []) ->
     {ok, Snapshot, Count};
-apply_operations(Type,Snapshot,Count,[Op | Rest]) ->
+apply_operations(_Type,Snapshot,Count,[], GeneratedDownstreamOps) ->
+    {ok, Snapshot, Count, GeneratedDownstreamOps};
+apply_operations(Type,Snapshot,Count,[Op | Rest], GeneratedDownstreamOps) ->
     case materializer:update_snapshot(Type, Snapshot, Op#clocksi_payload.op_param) of
+    {ok, NewSnapshot, NewGeneratedDownstreamOp} ->
+        apply_operations(Type, NewSnapshot, Count+1, Rest, NewGeneratedDownstreamOp ++ GeneratedDownstreamOps);
 	{ok, NewSnapshot} ->
-	    apply_operations(Type, NewSnapshot, Count+1, Rest);
+	    apply_operations(Type, NewSnapshot, Count+1, Rest, GeneratedDownstreamOps);
 	{error, Reason} ->
 	    {error, Reason}
     end.
@@ -160,7 +170,7 @@ materialize_intern(Type, OpList, LastOp, FirstHole, SnapshotCommitTime, MinSnaps
 	    materialize_intern_perform(Type, OpList, LastOp, FirstHole, SnapshotCommitTime, MinSnapshotTime,
 				       element((?FIRST_OP+Length-1) - Location, TupleOps), TupleOps, TxId, LastOpCt, NewSS, Location + 1)
     end.
-	    
+
 materialize_intern_perform(Type, OpList, LastOp, FirstHole, SnapshotCommitTime, MinSnapshotTime, {OpId,Op}, Rest, TxId, LastOpCt, NewSS, Location) ->
     Result = case Type == Op#clocksi_payload.type of
 		 true ->
@@ -308,7 +318,7 @@ materializer_clocksi_test()->
 							     ignore, vectorclock:from_list([{1,4}]),
 							     SS),
     ?assertEqual({6, vectorclock:from_list([{1,4}])}, {Type:value(PNcounter3), CommitTime3}),
-    
+
     {ok, PNcounter4, 4,CommitTime4, _SsSave2, _} = materialize(Type,
 							    ignore, vectorclock:from_list([{1,7}]),
 							    SS),
@@ -384,7 +394,7 @@ materializer_missing_dc_test() ->
 							    ignore, vectorclock:from_list([{1,3},{2,2}]),
 							    SS2),
     ?assertEqual({4, vectorclock:from_list([{1,3},{2,2}])}, {Type:value(PNCounterB), CommitTimeB}),
-    
+
     {ok, PNCounter2, LastOp, CommitTime2, _SsSave, _} = materialize(Type,
 								 ignore, vectorclock:from_list([{1,3},{2,1}]),
 								 SS),
@@ -396,7 +406,7 @@ materializer_missing_dc_test() ->
 							    ignore, vectorclock:from_list([{1,3},{2,2}]),
 							    SS3),
     ?assertEqual({4, vectorclock:from_list([{1,3},{2,2}])}, {Type:value(PNCounter3), CommitTime3}).
-       
+
 materializer_clocksi_concurrent_test() ->
     Type = antidote_crdt_counter,
     PNCounter = new(Type),
@@ -416,7 +426,7 @@ materializer_clocksi_concurrent_test() ->
                                       [], 0, 3, ignore,
                                       vectorclock:from_list([{2,2},{1,2}]),
                                       Ops, ignore, ignore, false, 0),
-    {ok, PNCounter3, _} = apply_operations(Type, PNCounter, 0, PNCounter2),
+    {ok, PNCounter3, _} = apply_operations(Type, PNCounter, 0, PNCounter2, []),
     ?assertEqual({4, vectorclock:from_list([{1,2},{2,2}])}, {Type:value(PNCounter3), CommitTime2}),
     Snapshot=new(Type),
     SS = #snapshot_get_response{snapshot_time = ignore, ops_list = Ops,
@@ -440,7 +450,7 @@ materializer_clocksi_noop_test() ->
     {ok, PNCounter2, 0, ignore, _SsSave} = materialize_intern(Type, [], 0, 0,ignore,
 						    vectorclock:from_list([{1,1}]),
 						    Ops, ignore, ignore, false, 0),
-    {ok, PNCounter3, _} = apply_operations(Type, PNCounter, 0, PNCounter2),
+    {ok, PNCounter3, _} = apply_operations(Type, PNCounter, 0, PNCounter2, []),
     ?assertEqual(0,Type:value(PNCounter3)).
 
 materializer_eager_clocksi_test()->
