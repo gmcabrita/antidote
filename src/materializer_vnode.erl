@@ -523,7 +523,7 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #mat_state{snapshot_cache = Snap
             [] -> nil;
             [{_, O} | _] -> O#clocksi_payload.type
         end,
-        case antidote_ccrdt:is_partially_incremental(Type) of
+        case antidote_ccrdt:generates_extra_operations(Type) of
             true ->
                 PrunedOpsList = lists:map(fun({_, Op}) -> Op end, PrunedOps),
                 {_, OldestSnapshotTuple} = vector_orddict:last(OldSnapshotDict),
