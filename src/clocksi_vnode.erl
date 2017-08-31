@@ -322,6 +322,8 @@ handle_command({single_commit, Transaction, WriteSet}, _Sender,
             ResultCommit = commit(Transaction, NewPrepare, WriteSet, CommittedTx, NewState),
             case ResultCommit of
                 {ok, committed, NewPreparedDict2} ->
+                    {ok, SS} = dc_utilities:get_stable_snapshot(),
+                    ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), PrepareTime}),
                     {reply, {committed, NewPrepare}, NewState#state{prepared_dict = NewPreparedDict2}};
                 {error, materializer_failure} ->
                     {reply, {error, materializer_failure}, NewState};
@@ -349,6 +351,8 @@ handle_command({commit, Transaction, TxCommitTime, Updates}, _Sender,
     Result = commit(Transaction, TxCommitTime, Updates, CommittedTx, State),
     case Result of
         {ok, committed, NewPreparedDict} ->
+            {ok, SS} = dc_utilities:get_stable_snapshot(),
+            ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), TxCommitTime}),
             {reply, committed, State#state{prepared_dict = NewPreparedDict}};
         {error, materializer_failure} ->
             {reply, {error, materializer_failure}, State};

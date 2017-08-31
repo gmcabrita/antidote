@@ -66,6 +66,8 @@ start(_StartType, _StartArgs) ->
                 _->
                     ok %dont_start_read_servers
             end,
+
+            ets:new(divergence, [bag, public, named_table]),
             {ok, Pid};
         {error, Reason} ->
             {error, Reason}
