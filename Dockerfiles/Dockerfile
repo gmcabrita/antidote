@@ -9,8 +9,8 @@ ENV RING_STATE_DIR "data/ring"
 ENV PLATFORM_DATA_DIR "data"
 ENV NODE_NAME "antidote@127.0.0.1"
 ENV SHORT_NAME "false"
-ENV ANTIDOTE_REPO "https://github.com/SyncFree/antidote.git"
-ENV ANTIDOTE_BRANCH "master"
+ENV ANTIDOTE_REPO "https://github.com/gmcabrita/antidote.git"
+ENV ANTIDOTE_BRANCH "divergence-tracking"
 
 RUN set -xe \
   && apt-get update \
