@@ -103,7 +103,7 @@ process_queue(DCID, {State, Acc}) ->
       case Success of
         false -> {NewState, Acc};
         true ->
-            {ok, SS} = dict:to_list(dc_utilities:get_stable_snapshot()),
+            {ok, SS} = dc_utilities:get_stable_snapshot(),
             ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), Txn#interdc_txn.timestamp}),
             process_queue(DCID, {pop_txn(NewState, DCID), Acc + 1}) %% remove the just-applied txn and retry
     end
