@@ -323,7 +323,14 @@ handle_command({single_commit, Transaction, WriteSet}, _Sender,
             case ResultCommit of
                 {ok, committed, NewPreparedDict2} ->
                     {ok, SS} = dc_utilities:get_stable_snapshot(),
-                    ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), PrepareTime}),
+                    TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
+                    {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+                    ets:insert(divergence, {
+                        {txn_id, TxnStart, Node},
+                        {time, dc_utilities:now_microsec()},
+                        {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                        {commit_time, NewPrepare}
+                    }),
                     {reply, {committed, NewPrepare}, NewState#state{prepared_dict = NewPreparedDict2}};
                 {error, materializer_failure} ->
                     {reply, {error, materializer_failure}, NewState};
@@ -352,7 +359,14 @@ handle_command({commit, Transaction, TxCommitTime, Updates}, _Sender,
     case Result of
         {ok, committed, NewPreparedDict} ->
             {ok, SS} = dc_utilities:get_stable_snapshot(),
-            ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), TxCommitTime}),
+            TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
+            {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+            ets:insert(divergence, {
+                {txn_id, TxnStart, Node},
+                {time, dc_utilities:now_microsec()},
+                {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                {commit_time, TxCommitTime}
+            }),
             {reply, committed, State#state{prepared_dict = NewPreparedDict}};
         {error, materializer_failure} ->
             {reply, {error, materializer_failure}, State};

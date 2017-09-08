@@ -104,7 +104,19 @@ process_queue(DCID, {State, Acc}) ->
         false -> {NewState, Acc};
         true ->
             {ok, SS} = dc_utilities:get_stable_snapshot(),
-            ets:insert(divergence, {dc_utilities:now_microsec(), dict:to_list(SS), Txn#interdc_txn.timestamp}),
+            % don't store heartbeats
+            case Txn#interdc_txn.log_records of
+                [] -> ok;
+                _ -> Record = hd(Txn#interdc_txn.log_records),
+                    TxnStart = Record#log_record.log_operation#log_operation.tx_id#tx_id.local_start_time,
+                    {Node, _} = Txn#interdc_txn.dcid,
+                    ets:insert(divergence, {
+                        {txn_id, TxnStart, Node},
+                        {time, dc_utilities:now_microsec()},
+                        {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                        {commit_time, Txn#interdc_txn.timestamp}
+                    })
+            end,
             process_queue(DCID, {pop_txn(NewState, DCID), Acc + 1}) %% remove the just-applied txn and retry
     end
   end.
