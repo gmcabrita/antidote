@@ -43,7 +43,10 @@ calculate([staleness]) ->
                            end, 0, SS),
     Staleness/(1000); %% To millisecs
 
-calculate([divergence]) -> lists:flatten(ets:match(divergence, '$1'));
+calculate([divergence]) ->
+    lists:sort(fun(T1, T2) ->
+        element(1, T1) =< element(1, T2)
+    end, lists:flatten(ets:match(divergence, '$1')));
 
 calculate(_) ->
     {error, metric_not_found}.

@@ -110,16 +110,32 @@ process_queue(DCID, {State, Acc}) ->
                 _ -> Record = hd(Txn#interdc_txn.log_records),
                     TxnStart = Record#log_record.log_operation#log_operation.tx_id#tx_id.local_start_time,
                     {Node, _} = Txn#interdc_txn.dcid,
+                    WriteSet = records_to_writeset(Txn#interdc_txn.log_records),
                     ets:insert(divergence, {
-                        {txn_id, TxnStart, Node},
                         {time, dc_utilities:now_microsec()},
+                        {txn_id, TxnStart, Node},
                         {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                        {writeset, WriteSet},
                         {commit_time, Txn#interdc_txn.timestamp}
                     })
             end,
             process_queue(DCID, {pop_txn(NewState, DCID), Acc + 1}) %% remove the just-applied txn and retry
     end
   end.
+
+records_to_writeset(Records) ->
+    lists:map(
+        fun(#log_record{
+            log_operation = #log_operation{
+                log_payload = #update_log_payload{
+                    key = Key,
+                    type = Type,
+                    op = Op
+                }
+            }
+        }) ->
+            {Key, Type, Op}
+        end, lists:droplast(lists:droplast(Records))).
 
 %% Store the heartbeat message.
 %% This is not a true transaction, so its dependencies are always satisfied.

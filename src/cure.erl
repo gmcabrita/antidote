@@ -176,9 +176,16 @@ obtain_objects(Clock, Properties, Objects, StayAlive, StateOrValue) ->
 transform_reads(States, StateOrValue, Objects) ->
     case StateOrValue of
             object_state -> States;
-            object_value -> lists:map(fun({State, {_Key, Type, _Bucket}}) ->
-                                          Type:value(State) end,
-                                      lists:zip(States, Objects))
+            object_value ->
+                    {ok, SS} = dc_utilities:get_stable_snapshot(),
+                ets:insert(divergence, {
+                    {time, dc_utilities:now_microsec()},
+                    {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                    {readset, Objects}
+                }),
+                lists:map(fun({State, {_Key, Type, _Bucket}}) ->
+                    Type:value(State)
+                end, lists:zip(States, Objects))
     end.
 
 

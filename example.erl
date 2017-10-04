@@ -7,4 +7,4 @@
 main([Target]) ->
     erlang:set_cookie(node(), antidote),
     R = rpc:call(list_to_atom(Target), antidote_stats, get_value, [[divergence]]),
-    io:format("~w", [R]).
+    io:format("~p~n", [R]).
