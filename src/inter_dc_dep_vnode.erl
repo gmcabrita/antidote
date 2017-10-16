@@ -103,10 +103,8 @@ process_queue(DCID, {State, Acc}) ->
       case Success of
         false -> {NewState, Acc};
         true ->
-            {ok, SS} = dc_utilities:get_stable_snapshot(),
-            % don't store heartbeats
             case Txn#interdc_txn.log_records of
-                [] -> ok;
+                [] -> ok; % don't store heartbeats
                 _ -> Record = hd(Txn#interdc_txn.log_records),
                     TxnStart = Record#log_record.log_operation#log_operation.tx_id#tx_id.local_start_time,
                     {Node, _} = Txn#interdc_txn.dcid,
@@ -114,7 +112,7 @@ process_queue(DCID, {State, Acc}) ->
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
                         {txn_id, TxnStart, Node},
-                        {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                        {vector, Txn#interdc_txn.snapshot},
                         {writeset, WriteSet},
                         {commit_time, Txn#interdc_txn.timestamp}
                     })
