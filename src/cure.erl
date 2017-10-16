@@ -178,9 +178,12 @@ transform_reads(States, StateOrValue, Objects) ->
             object_state -> States;
             object_value ->
                     {ok, SS} = dc_utilities:get_stable_snapshot(),
+                    Now = dc_utilities:now_microsec(),
+                    DcId = dc_meta_data_utilities:get_my_dc_id(),
+                    SnapshotTime = vectorclock:set_clock_of_dc(DcId, Now, SS),
                 ets:insert(divergence, {
-                    {time, dc_utilities:now_microsec()},
-                    {vector, lists:map(fun({{Dc, _}, T}) -> {Dc, T} end, dict:to_list(SS))},
+                    {time, Now},
+                    {vector, SnapshotTime},
                     {readset, Objects}
                 }),
                 lists:map(fun({State, {_Key, Type, _Bucket}}) ->
