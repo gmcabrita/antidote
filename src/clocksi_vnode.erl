@@ -323,7 +323,7 @@ handle_command({single_commit, Transaction, WriteSet}, _Sender,
             case ResultCommit of
                 {ok, committed, NewPreparedDict2} ->
                     TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
-                    {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+                    Node = dc_meta_data_utilities:get_my_dc_id(),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
                         {txn_id, TxnStart, Node},
@@ -359,7 +359,7 @@ handle_command({commit, Transaction, TxCommitTime, Updates}, _Sender,
     case Result of
         {ok, committed, NewPreparedDict} ->
             TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
-            {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+            Node = dc_meta_data_utilities:get_my_dc_id(),
             ets:insert(divergence, {
                 {time, dc_utilities:now_microsec()},
                 {txn_id, TxnStart, Node},

@@ -107,7 +107,7 @@ process_queue(DCID, {State, Acc}) ->
                 [] -> ok; % don't store heartbeats
                 _ -> Record = hd(Txn#interdc_txn.log_records),
                     TxnStart = Record#log_record.log_operation#log_operation.tx_id#tx_id.local_start_time,
-                    {Node, _} = Txn#interdc_txn.dcid,
+                    Node = Txn#interdc_txn.dcid,
                     WriteSet = records_to_writeset(Txn#interdc_txn.log_records),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
