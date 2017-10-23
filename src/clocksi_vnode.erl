@@ -323,12 +323,14 @@ handle_command({single_commit, Transaction, WriteSet}, _Sender,
             case ResultCommit of
                 {ok, committed, NewPreparedDict2} ->
                     TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
-                    Node = dc_meta_data_utilities:get_my_dc_id(),
+                    {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+                    SnapshotList = vectorclock:to_list(Transaction#transaction.vec_snapshot_time),
+                    WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, WriteSet),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
                         {txn_id, TxnStart, Node},
-                        {vector, Transaction#transaction.vec_snapshot_time},
-                        {writeset, WriteSet},
+                        {vector, SnapshotList},
+                        {writeset, WS},
                         {commit_time, NewPrepare}
                     }),
                     {reply, {committed, NewPrepare}, NewState#state{prepared_dict = NewPreparedDict2}};
@@ -359,12 +361,14 @@ handle_command({commit, Transaction, TxCommitTime, Updates}, _Sender,
     case Result of
         {ok, committed, NewPreparedDict} ->
             TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
-            Node = dc_meta_data_utilities:get_my_dc_id(),
+            {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
+            SnapshotList = vectorclock:to_list(Transaction#transaction.vec_snapshot_time),
+            WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, Updates),
             ets:insert(divergence, {
                 {time, dc_utilities:now_microsec()},
                 {txn_id, TxnStart, Node},
-                {vector, Transaction#transaction.vec_snapshot_time},
-                {writeset, Updates},
+                {vector, SnapshotList},
+                {writeset, WS},
                 {commit_time, TxCommitTime}
             }),
             {reply, committed, State#state{prepared_dict = NewPreparedDict}};

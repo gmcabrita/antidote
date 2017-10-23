@@ -107,13 +107,15 @@ process_queue(DCID, {State, Acc}) ->
                 [] -> ok; % don't store heartbeats
                 _ -> Record = hd(Txn#interdc_txn.log_records),
                     TxnStart = Record#log_record.log_operation#log_operation.tx_id#tx_id.local_start_time,
-                    Node = Txn#interdc_txn.dcid,
+                    {Node, _} = Txn#interdc_txn.dcid,
                     WriteSet = records_to_writeset(Txn#interdc_txn.log_records),
+                    WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, WriteSet),
+                    SnapshotList = vectorclock:to_list(Txn#interdc_txn.snapshot),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
                         {txn_id, TxnStart, Node},
-                        {vector, Txn#interdc_txn.snapshot},
-                        {writeset, WriteSet},
+                        {vector, SnapshotList},
+                        {writeset, WS},
                         {commit_time, Txn#interdc_txn.timestamp}
                     })
             end,

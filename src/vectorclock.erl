@@ -38,13 +38,17 @@
          gt/2,
          lt/2,
          max/1,
-         min/1]).
+         min/1,
+         to_list/1]).
 
 -export_type([vectorclock/0]).
 
 -spec new() -> vectorclock().
 new() ->
     dict:new().
+
+to_list(Vc) ->
+    lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Vc)).
 
 -spec get_clock_of_dc(any(), vectorclock()) -> non_neg_integer().
 get_clock_of_dc(Key, VectorClock) ->
