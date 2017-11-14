@@ -11,6 +11,7 @@
                   riak_api,
                   riak_core,
                   antidote_crdt,
+                  inets,
                   cuttlefish,
                   antidote_pb,
                   erlzmq,

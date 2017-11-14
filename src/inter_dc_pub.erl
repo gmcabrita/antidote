@@ -49,30 +49,18 @@
 
 -spec get_address() -> socket_address().
 get_address() ->
-  %% first try resolving our hostname according to the node name
-  [_, Hostname] = string:tokens(atom_to_list(erlang:node()), "@"),
-  Ip = case inet:getaddr(Hostname, inet) of
-    {ok, HostIp} -> HostIp;
-    {error, _} ->
-      %% cannot resolve hostname locally, fall back to interface ip
-      %% TODO check if we do not return a link-local address
-      {ok, List} = inet:getif(),
-      {IIp, _, _} = hd(List),
-      IIp
-  end,
-  Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
-  {Ip, Port}.
+    {ok, {_, _, StrIp}} = httpc:request(get, {"http://checkip.amazonaws.com/", []}, [], []),
+    {ok, Ip} = inet_parse:address(string:strip(StrIp, right, $\n)),
+    Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
+    {Ip, Port}.
 
 -spec get_address_list() -> [socket_address()].
 get_address_list() ->
-    {ok, List} = inet:getif(),
-    List1 = [Ip1 || {Ip1, _, _} <- List],
-    %% get host name from node name
-    [_, Hostname] = string:tokens(atom_to_list(erlang:node()), "@"),
-    IpList = case inet:getaddr(Hostname, inet) of
-      {ok, HostIp} -> [HostIp|List1];
-      {error, _} -> List1
-    end,
+    {ok, IpList} = inet:getif(),
+    {ok, {_, _, StrIp}} = httpc:request(get, {"http://checkip.amazonaws.com/", []}, [], []),
+    {ok, Ip} = inet_parse:address(string:strip(StrIp, right, $\n)),
+    {Fst,Snd,Thd,_Fth} = Ip,
+    List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
     [{Ip1, Port} || Ip1 <- IpList, Ip1 /= {127, 0, 0, 1}].
 
