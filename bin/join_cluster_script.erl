@@ -563,7 +563,7 @@ check_ready(Node) ->
     io:format("Checking if node ~w is ready ~n~n", [Node]),
     case rpc:call(Node,clocksi_vnode,check_tables_ready,[]) of
         true ->
-            case rpc:call(Node,clocksi_readitem_fsm,check_servers_ready,[]) of
+            case rpc:call(Node,clocksi_readitem_server,check_servers_ready,[]) of
                 true ->
                     case rpc:call(Node,materializer_vnode,check_tables_ready,[]) of
                         true ->
