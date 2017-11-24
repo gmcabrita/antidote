@@ -181,7 +181,7 @@ transform_reads(States, StateOrValue, Objects) ->
                     Now = dc_utilities:now_microsec(),
                     DcId = dc_meta_data_utilities:get_my_dc_id(),
                     SnapshotTime = vectorclock:to_list(vectorclock:set_clock_of_dc(DcId, Now, SS)),
-                ets:insert(divergence, {
+                ets:insert(divergence_reads, {
                     {time, Now},
                     {vector, SnapshotTime},
                     {readset, Objects}

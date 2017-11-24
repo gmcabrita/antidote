@@ -43,11 +43,23 @@ calculate([staleness]) ->
                            end, 0, SS),
     Staleness/(1000); %% To millisecs
 
-calculate([divergence]) ->
+calculate([old_divergence]) ->
     lists:sort(fun(T1, T2) ->
         element(1, T1) =< element(1, T2)
-    end, lists:flatten(ets:match(divergence, '$1')));
-
+    end, lists:flatten(ets:match(divergence, '$1') ++ ets:match(divergence_reads, '$1')));
+calculate([divergence]) ->
+    Mapped = lists:foldl(fun([{_, TxId, _, {writeset, WS}, _} = Log], Map) ->
+        case maps:is_key(TxId, Map) of
+            true ->
+                {Time, TxId, Vector, {writeset, WSOld}, Commit} = maps:get(TxId, Map),
+                Updated = {Time, TxId, Vector, {writeset, WSOld ++ WS}, Commit},
+                maps:update(TxId, Updated, Map);
+            false -> maps:put(TxId, Log, Map)
+        end
+    end, maps:new(), ets:match(divergence, '$1')),
+    lists:sort(fun(T1, T2) ->
+        element(1, T1) =< element(1, T2)
+    end, maps:values(Mapped) ++ lists:flatten(ets:match(divergence_reads, '$1')));
 calculate(_) ->
     {error, metric_not_found}.
 

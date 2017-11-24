@@ -68,6 +68,7 @@ start(_StartType, _StartArgs) ->
             end,
 
             ets:new(divergence, [bag, public, named_table]),
+            ets:new(divergence_reads, [bag, public, named_table]),
             {ok, Pid};
         {error, Reason} ->
             {error, Reason}
