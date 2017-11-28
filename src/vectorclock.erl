@@ -48,7 +48,7 @@ new() ->
     dict:new().
 
 to_list(Vc) ->
-    lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Vc)).
+    lists:sort(lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Vc))).
 
 -spec get_clock_of_dc(any(), vectorclock()) -> non_neg_integer().
 get_clock_of_dc(Key, VectorClock) ->
