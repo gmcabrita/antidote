@@ -27,7 +27,7 @@ auto:
 	$(REBAR) auto --name='antidote@127.0.0.1' --setcookie antidote --config config/sys-debug.config
 
 rel:
-	$(REBAR) release
+	$(REBAR) release -n antidote
 
 relclean:
 	rm -rf _build/default/rel
@@ -58,7 +58,7 @@ foreground: rel
 	./_build/default/rel/antidote/bin/env foreground
 
 console: rel
-	./_build/default/rel/antidote/bin/env console
+	INSTANCE_NAME=antidote ./_build/default/rel/antidote/bin/env console
 
 mesos-docker-build:
 	docker build -f Dockerfiles/antidote-mesos -t cmeiklejohn/antidote-mesos .

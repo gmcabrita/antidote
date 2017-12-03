@@ -221,6 +221,7 @@ perform_singleitem_read(Key, Type) ->
     {Transaction, _TransactionId} = create_transaction_record(ignore, update_clock, false, undefined, true),
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
+    %% TODO: @gmcabrita, grab preflist from leader elector instead
     case clocksi_readitem_fsm:read_data_item(IndexNode, Key, Type, Transaction) of
         {error, Reason} ->
             {error, Reason};
@@ -239,6 +240,7 @@ perform_singleitem_read(Key, Type) ->
 perform_singleitem_update(Key, Type, Params) ->
     {Transaction, _TransactionId} = create_transaction_record(ignore, update_clock, false, undefined, true),
     Preflist = log_utilities:get_preflist_from_key(Key),
+    %% TODO: @gmcabrita, grab preflist from leader elector instead
     IndexNode = hd(Preflist),
     %% Execute pre_commit_hook if any
     case antidote_hooks:execute_pre_commit_hook(Key, Type, Params) of
@@ -285,6 +287,7 @@ perform_read(Args, Updated_partitions, Transaction, Sender) ->
     {Key, Type} = Args,
     Preflist = ?LOG_UTIL:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
+    %% TODO: @gmcabrita, grab preflist from leader elector instead
     WriteSet = case lists:keyfind(IndexNode, 1, Updated_partitions) of
                    false ->
                        [];
@@ -309,6 +312,7 @@ perform_update(Args, Updated_partitions, Transaction, _Sender, ClientOps, Intern
     {Key, Type, Param} = Args,
     Preflist = ?LOG_UTIL:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
+    %% TODO: @gmcabrita, grab preflist from leader elector instead
     WriteSet = case lists:keyfind(IndexNode, 1, Updated_partitions) of
                    false ->
                        [];
@@ -376,6 +380,7 @@ execute_op({OpType, Args}, Sender,
         read_objects ->
             ExecuteReads = fun({Key, Type}, Acc) ->
                 PrefList= ?LOG_UTIL:get_preflist_from_key(Key),
+                %% TODO: @gmcabrita, grab preflist from leader elector instead
                 IndexNode = hd(PrefList),
                 ok = clocksi_vnode:async_read_data_item(IndexNode, Transaction, Key, Type),
                 ReadSet = Acc#tx_coord_state.return_accumulator,
@@ -459,6 +464,7 @@ receive_read_objects_result({ok, {Key, Type, Snapshot}},
 -spec apply_tx_updates_to_snapshot (key(), #tx_coord_state{}, type(), snapshot()) -> snapshot().
 apply_tx_updates_to_snapshot(Key, CoordState, Type, Snapshot)->
     Preflist=?LOG_UTIL:get_preflist_from_key(Key),
+    %% TODO: @gmcabrita, grab preflist from leader elector instead
     IndexNode=hd(Preflist),
     case lists:keyfind(IndexNode, 1, CoordState#tx_coord_state.updated_partitions) of
         false->

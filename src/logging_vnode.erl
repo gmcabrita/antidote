@@ -381,11 +381,17 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
                         _ -> NewOpId
                     end,
                     LogRecord = #log_record{
-                      version = log_utilities:log_record_version(),
-                      op_number = NewOpId,
-                      bucket_op_number = NewBucketOpId,
-                      log_operation = LogOperation},
-                    case insert_log_record(Log, LogId, LogRecord, EnableLog) of
+                        version = log_utilities:log_record_version(),
+                        op_number = NewOpId,
+                        bucket_op_number = NewBucketOpId,
+                        log_operation = LogOperation
+                    },
+                    Buffer = case LogOperation#log_operation.op_type of
+                        % we must retrieve the buffer before sending the commit to the log_sender_vnode!
+                        commit -> inter_dc_log_sender_vnode:get_buffer(Partition, LogOperation#log_operation.tx_id) ++ [LogRecord];
+                        _ -> []
+                    end,
+                    Response = case insert_log_record(Log, LogId, LogRecord, EnableLog) of
                         {ok, NewOpId} ->
                             inter_dc_log_sender_vnode:send(Partition, LogRecord),
                             case Sync of
@@ -398,7 +404,13 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
                             end;
                         {error, Reason} ->
                             {reply, {error, Reason}, State}
-                    end
+                    end,
+                    case LogOperation#log_operation.op_type of
+                        commit ->
+                            ok = intra_dc_log_replication_vnode:replicate(Partition, Buffer);
+                        _ -> ok
+                    end,
+                    Response
             end;
         {error, Reason} ->
             {reply, {error, Reason}, State}

@@ -81,6 +81,7 @@ init(_Args) ->
 
 
     BCounterManager = ?CHILD(bcounter_mgr, worker, []),
+    IntraDcLeaderElector = ?CHILD(intra_dc_leader_elector, worker, []),
 
     ZMQContextManager = ?CHILD(zmq_context, worker, []),
     InterDcPub = ?CHILD(inter_dc_pub, worker, []),
@@ -88,6 +89,7 @@ init(_Args) ->
     StableMetaData = ?CHILD(stable_meta_data_server, worker, []),
     InterDcSubVnode = ?VNODE(inter_dc_sub_vnode_master, inter_dc_sub_vnode),
     InterDcDepVnode = ?VNODE(inter_dc_dep_vnode_master, inter_dc_dep_vnode),
+    IntraDcReplVnode = ?VNODE(intra_dc_log_replication_vnode_master, intra_dc_log_replication_vnode),
     InterDcLogReaderQMaster = ?CHILD(inter_dc_query, worker, []),
     InterDcLogReaderRMaster = ?CHILD(inter_dc_query_receive_socket, worker, []),
     InterDcLogSenderMaster = ?VNODE(inter_dc_log_sender_vnode_master, inter_dc_log_sender_vnode),
@@ -124,6 +126,8 @@ init(_Args) ->
        InterDcLogReaderQMaster,
        InterDcLogReaderRMaster,
        InterDcLogSenderMaster,
+       IntraDcReplVnode,
+       IntraDcLeaderElector,
        StableMetaData,
        MetaDataManagerSup,
        MetaDataSenderSup,

@@ -44,15 +44,18 @@
 -endif.
 
 %% API
--export([start_vnode/1,
-	 check_tables_ready/0,
-         read/5,
-	 get_cache_name/2,
-	 store_ss/3,
-     store_ss/4,
-         update/2,
-	 tuple_to_key/2,
-	 belongs_to_snapshot_op/3]).
+-export([
+    start_vnode/1,
+    check_tables_ready/0,
+    read/5,
+    get_cache_name/2,
+    store_ss/3,
+    store_ss/4,
+    update/2,
+    tuple_to_key/2,
+    belongs_to_snapshot_op/3,
+    reload/1
+]).
 
 %% Callbacks
 -export([init/1,
@@ -73,6 +76,11 @@
 
 start_vnode(I) ->
     riak_core_vnode_master:get_vnode_pid(I, ?MODULE).
+
+reload(Partition) ->
+    ok = riak_core_vnode_master:sync_command({Partition, node()}, reload, materializer_vnode_master),
+    riak_core_vnode_master:command({Partition, node()}, load_from_log, materializer_vnode_master),
+    ok.
 
 %% @doc Read state of key at given snapshot time, this does not touch the vnode process
 %%      directly, instead it just reads from the operations and snapshot tables that
@@ -144,6 +152,7 @@ loop_until_loaded(Node, LogId, Continuation, Ops, State) ->
 	{error, Reason} ->
 	    {error, Reason};
 	{NewContinuation, NewOps, OpsDict} ->
+        lager:info("Reloading ops: ~p~n", [OpsDict]),
 	    load_ops(OpsDict, State),
 	    loop_until_loaded(Node, LogId, NewContinuation, NewOps, State);
 	{eof, OpsDict} ->
@@ -242,6 +251,13 @@ handle_command({store_ss, Key, Snapshot, CommitTime}, _Sender, State) ->
     internal_store_ss(Key,Snapshot,CommitTime,false,State),
     {noreply, State};
 
+handle_command(reload, _Sender, #mat_state{partition = Partition}) ->
+    ets:delete(get_cache_name(Partition, ops_cache)),
+    ets:delete(get_cache_name(Partition, snapshot_cache)),
+    OpsCache = open_table(Partition, ops_cache),
+    SnapshotCache = open_table(Partition, snapshot_cache),
+    {reply, ok, #mat_state{is_ready = false, partition = Partition, ops_cache = OpsCache, snapshot_cache = SnapshotCache}};
+
 handle_command(load_from_log, _Sender, State=#mat_state{partition=Partition}) ->
     IsReady = try
                 case load_from_log_to_tables(Partition, State) of
@@ -249,6 +265,7 @@ handle_command(load_from_log, _Sender, State=#mat_state{partition=Partition}) ->
                         lager:debug("Finished loading from log to materializer on partition ~w", [Partition]),
                         true;
                     {error, not_ready} ->
+                        lager:debug("Error: not ready."),
                         false;
                     {error, Reason} ->
                         lager:error("Unable to load logs from disk: ~w, continuing", [Reason]),
@@ -646,24 +663,26 @@ op_insert_gc(Key, DownstreamOp, State = #mat_state{ops_cache = OpsCache})->
 -spec propagate_new_downstream_ops(key(), type(), [op()]) -> true.
 propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
     UniqueDownstreamOps = gb_sets:to_list(gb_sets:from_list(NewDownstreamOps)),
-    lists:map(fun(Op) ->
-        spawn(fun() ->
-            propagate_new_downstream_op(Key, Type, Op)
-        end)
-    end, UniqueDownstreamOps),
-    true.
-
-propagate_new_downstream_op(Key, Type, Op) ->
-    {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
-    Preflist = log_utilities:get_preflist_from_key(Key),
-    IndexNode = hd(Preflist),
-    UpdatedPartition = [{IndexNode, [{Key, Type, Op}]}],
-    LogRecord = #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = Op}},
-    LogId = log_utilities:get_logid_from_key(Key),
-    [Node] = Preflist,
-    {ok, _} = logging_vnode:append(Node, LogId, LogRecord),
-    {committed, _} = clocksi_vnode:single_commit_sync(UpdatedPartition, Transaction),
-    ok.
+    case UniqueDownstreamOps of
+        [] -> true;
+        _ ->
+            spawn(fun() ->
+                {Transaction, TxId} = clocksi_interactive_tx_coord_fsm:create_transaction_record(ignore, update_clock, false, undefined, true),
+                Preflist = log_utilities:get_preflist_from_key(Key),
+                IndexNode = hd(Preflist),
+                LogId = log_utilities:get_logid_from_key(Key),
+                [Node] = Preflist,
+                % build the writeset
+                WriteSet = [{IndexNode, lists:map(fun(Op) ->
+                    % build log_op and append to log
+                    LogOp = #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = Op}},
+                    {ok, _} = logging_vnode:append(Node, LogId, LogOp),
+                    {Key, Type, Op}
+                end, UniqueDownstreamOps)}],
+                {committed, _} = clocksi_vnode:single_commit_sync(WriteSet, Transaction)
+            end),
+            true
+    end.
 
 -ifdef(TEST).
 

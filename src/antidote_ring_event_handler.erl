@@ -29,6 +29,7 @@ init([]) ->
     {ok, #state{}}.
 
 handle_event({ring_update, _Ring}, State) ->
+    intra_dc_leader_elector:ring_changed(),
     {ok, State}.
 
 handle_call(_Event, State) ->

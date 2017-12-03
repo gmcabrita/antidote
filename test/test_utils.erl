@@ -43,7 +43,8 @@
          partition_cluster/2,
          heal_cluster/2,
          join_cluster/1,
-         set_up_clusters_common/1]).
+         set_up_clusters_common/1,
+         set_up_dc_common/1]).
 
 at_init_testsuite() ->
 %% this might help, might not...
@@ -207,7 +208,7 @@ start_node(Name, Config) ->
             ok = rpc:call(Node, application, load, [antidote]),
             ok = rpc:call(Node, application, set_env, [antidote, pubsub_port, web_ports(Name) + 1]),
             ok = rpc:call(Node, application, set_env, [antidote, logreader_port, web_ports(Name)]),
-	    
+
             {ok, _} = rpc:call(Node, application, ensure_all_started, [antidote]),
             ct:print("Node ~p started",[Node]),
 
@@ -296,7 +297,9 @@ web_ports(dev2) ->
 web_ports(dev3) ->
     10035;
 web_ports(dev4) ->
-    10045.
+    10045;
+web_ports(dev5) ->
+    10055.
 
 %% Build clusters
 join_cluster(Nodes) ->
@@ -491,3 +494,15 @@ set_up_clusters_common(Config) ->
         connect_cluster(Clusterheads)
    end,
    [Cluster1, Cluster2, Cluster3].
+
+%% Build clusters for all test suites.
+set_up_dc_common(Config) ->
+    Cluster = pmap(fun(N) ->
+        start_node(N, Config)
+    end, [dev1, dev2, dev3]),
+    %% Do not join cluster if it is already done
+    case owners_according_to(hd(Cluster)) of
+      Cluster -> ok;
+      _ -> join_cluster(Cluster), connect_cluster([hd(Cluster)])
+    end,
+    Cluster.
