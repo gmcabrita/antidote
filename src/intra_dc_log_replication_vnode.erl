@@ -53,7 +53,8 @@
 
 %% VNode state
 -record(state, {
-    partition :: partition_id()
+    partition :: partition_id(),
+    last_ops :: map()
 }).
 
 %%%% External API
@@ -66,35 +67,24 @@ replicate(Partition, Buffer) ->
 start_vnode(I) -> riak_core_vnode_master:get_vnode_pid(I, ?MODULE).
 
 init([Partition]) ->
-    {ok, #state{partition = Partition}}.
+    % TODO: @gmcabrita, read last_op from disk_log instead of defaulting to 0
+    {ok, #state{partition = Partition, last_ops = #{Partition => 0}}}.
 
 handle_command({txn, OriginalPartition, Buffer}, _From, State) ->
-    %% TODO: @gmcabrita, consider storing this locally and updating whenever it actually changes
-    Cluster = intra_dc_leader_elector:get_cluster(OriginalPartition),
-    [_Leader, TargetNode | TargetRemainingNodes] = maps:get(membership, Cluster),
-    %% TODO: @gmcabrita, retry in case the call fails
-    ok = riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer}, intra_dc_log_replication_vnode_master),
-    {reply, ok, State};
+    txn(OriginalPartition, Buffer, State);
 
-handle_command({run_txn, OriginalPartition, RemainingNodes, Buffer}, _From, State) ->
-    Log = open_log(OriginalPartition),
-    lists:map(fun(LogRecord) -> disk_log:log(Log, {[OriginalPartition], LogRecord}) end, Buffer),
-    lager:info("Node: ~p, replicated correctly for original partition ~p~n", [node(), OriginalPartition]),
-    Result = case RemainingNodes == [] of
-        true -> ok;
+handle_command({run_txn, OriginalPartition, RemainingNodes, Buffer, OpNumber}, _From, State = #state{last_ops = CurrentOps}) ->
+    CurrentOp = case maps:is_key(OriginalPartition, CurrentOps) of
+        true ->
+            maps:get(OriginalPartition, CurrentOps);
         false ->
-            %% TODO: @gmcabrita, we use 1 here because we're assuming we always have N=3
-            %% If N ever changes, the sync_command has to be adjusted too, as the quorum will increase
-            %% so the call will need to be synchronous for more nodes down the chain
-            NextBuffer = case length(RemainingNodes) == 1 of
-                true -> filter_buffer(Buffer);
-                false -> Buffer
-            end,
-            [TargetNode | TargetRemainingNodes] = RemainingNodes,
-            spawn(fun() -> riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, NextBuffer}, intra_dc_log_replication_vnode_master) end),
-            ok
+            % TODO: @gmcabrita, read from disk_log
+            0
     end,
-    {reply, Result, State};
+    case OpNumber > CurrentOp of
+        true -> {reply, {missing, CurrentOp}, State};
+        false -> run_txn(OriginalPartition, RemainingNodes, Buffer, OpNumber, State)
+    end;
 
 handle_command({hello}, _Sender, State) ->
     {reply, ok, State}.
@@ -124,6 +114,54 @@ terminate(_Reason, _State) ->
 
 %%%% Private Functions
 
+txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
+    CurrentOp = maps:get(OriginalPartition, CurrentOps),
+    %% TODO: @gmcabrita, consider storing this locally and updating whenever it actually changes
+    Cluster = intra_dc_leader_elector:get_cluster(OriginalPartition),
+    [_Leader, TargetNode | TargetRemainingNodes] = maps:get(membership, Cluster),
+    %% TODO: @gmcabrita, retry in case the call fails, also check if node is missing operations
+    case riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer, CurrentOp}, intra_dc_log_replication_vnode_master) of
+        ok -> ok;
+        {missing, _Number} ->
+            % TODO: @gmcabrita, read 'OldBuffer' from log from Number till CurrentOp
+            % Send OldBuffer, after ok send Buffer
+            ok
+    end,
+    LastRecord = lists:last(Buffer),
+    LastOp = LastRecord#log_record.op_number#op_number.local,
+    {reply, ok, State#state{last_ops = maps:put(OriginalPartition, LastOp, CurrentOps)}}.
+
+run_txn(OriginalPartition, RemainingNodes, Buffer, CurrentOp, State = #state{last_ops = CurrentOps}) ->
+    Log = open_log(OriginalPartition),
+    lists:map(fun(LogRecord) -> disk_log:log(Log, {[OriginalPartition], LogRecord}) end, Buffer),
+    %lager:info("Node: ~p, replicated correctly for original partition ~p~n", [node(), OriginalPartition]),
+    case RemainingNodes == [] of
+        true -> ok;
+        false ->
+            %% TODO: @gmcabrita, we use 1 here because we're assuming we always have N=3
+            %% If N ever changes, the sync_command has to be adjusted too, as the quorum will increase
+            %% so the call will need to be synchronous for more nodes down the chain
+            NextBuffer = case length(RemainingNodes) == 1 of
+                true -> filter_buffer(Buffer);
+                false -> Buffer
+            end,
+            [TargetNode | TargetRemainingNodes] = RemainingNodes,
+
+            spawn(fun() ->
+                case riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, NextBuffer, CurrentOp}, intra_dc_log_replication_vnode_master) of
+                    ok -> ok;
+                    {missing, _Number} ->
+                        % TODO: @gmcabrita, read 'OldBuffer' from log from Number till CurrentOp
+                        % Send OldBuffer, after ok send Buffer
+                        ok
+                end
+            end),
+            ok
+    end,
+    LastRecord = lists:last(Buffer),
+    LastOp = LastRecord#log_record.op_number#op_number.local,
+    {reply, ok, State#state{last_ops = maps:put(OriginalPartition, LastOp, CurrentOps)}}.
+
 open_log(Partition) ->
     LogFile = integer_to_list(Partition),
     LogId = LogFile ++ "--" ++ LogFile,
@@ -135,25 +173,14 @@ open_log(Partition) ->
     end.
 
 filter_buffer(Buffer) ->
-    B = lists:foldl(fun(LogRecord, Acc) ->
+    lists:filter(fun(LogRecord) ->
         Operation = LogRecord#log_record.log_operation,
         case Operation#log_operation.op_type of
             update ->
                 Update = Operation#log_operation.log_payload,
                 Type = Update#update_log_payload.type,
                 Op = Update#update_log_payload.op,
-                case antidote_ccrdt:is_type(Type) of
-                    true ->
-                        case Type:is_replicate_tagged(Op) of
-                            true -> Acc;
-                            false -> [LogRecord | Acc]
-                        end;
-                    false -> [LogRecord | Acc]
-                end;
-            _ -> [LogRecord | Acc]
+                not (antidote_ccrdt:is_type(Type) andalso Type:is_replicate_tagged(Op));
+            _ -> true
         end
-    end, [], Buffer),
-    case length(B) > 2 of
-        true -> lists:reverse(B);
-        false -> []
-    end.
+    end, Buffer).

@@ -18,9 +18,6 @@
 %%
 %% -------------------------------------------------------------------
 
-%% TODO: @gmcabrita
-%% - rewrite with new logic in mind
-
 -module(intra_dc_leader_elector).
 -behaviour(gen_server).
 
