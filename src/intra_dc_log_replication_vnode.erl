@@ -18,12 +18,6 @@
 %%
 %% -------------------------------------------------------------------
 
-%% This vnode is responsible for coordinating the replication of log
-%% operations between different Antidote nodes.
-
-%% TODO: @gmcabrita
-%% - rewrite with new logic in mind
-
 -module(intra_dc_log_replication_vnode).
 -behaviour(riak_core_vnode).
 -include("antidote.hrl").

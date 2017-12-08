@@ -43,7 +43,7 @@ wait_ready(Node) ->
 	    true;
 	false ->
 	    timer:sleep(1000),
-	    check_ready(Node)
+	    wait_ready(Node)
     end.
 
 %% @doc This function provides the same functionality as wait_ready_nodes
@@ -76,4 +76,4 @@ check_ready(Node) ->
 	false ->
 	    lager:debug("Checking if node ~w is ready ~n", [Node]),
 	    false
-    end.                
+    end.

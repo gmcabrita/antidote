@@ -413,7 +413,7 @@ internal_read(Key, Type, MinSnapshotTime, TxId, ShouldGc, State = #mat_state{sna
 	case Result of
 	    {error, no_snapshot} ->
 		LogId = log_utilities:get_logid_from_key(Key),
-		[Node] = log_utilities:get_preflist_from_key(Key),
+		Node = hd(log_utilities:get_preflist_from_key(Key)),
 		logging_vnode:get(Node, LogId, MinSnapshotTime, Type, Key);
 	    {LatestSnapshot1,SnapshotCommitTime1,IsFirst1} ->
 		case ets:lookup(OpsCache, Key) of
@@ -671,12 +671,11 @@ propagate_new_downstream_ops(Key, Type, NewDownstreamOps) ->
                 Preflist = log_utilities:get_preflist_from_key(Key),
                 IndexNode = hd(Preflist),
                 LogId = log_utilities:get_logid_from_key(Key),
-                [Node] = Preflist,
                 % build the writeset
                 WriteSet = [{IndexNode, lists:map(fun(Op) ->
                     % build log_op and append to log
                     LogOp = #log_operation{tx_id = TxId, op_type = update, log_payload = #update_log_payload{key = Key, type = Type, op = Op}},
-                    {ok, _} = logging_vnode:append(Node, LogId, LogOp),
+                    {ok, _} = logging_vnode:append(IndexNode, LogId, LogOp),
                     {Key, Type, Op}
                 end, UniqueDownstreamOps)}],
                 {committed, _} = clocksi_vnode:single_commit_sync(WriteSet, Transaction)

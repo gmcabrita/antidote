@@ -25,7 +25,8 @@
 -export([
     ring_changed/0,
     get_cluster/0,
-    get_cluster/1
+    get_cluster/1,
+    get_preflist/1
 ]).
 
 %% Internal API
@@ -55,6 +56,9 @@ get_cluster() ->
 get_cluster(Partition) ->
     gen_server:call({global, generate_server_name(node())}, {get_cluster, Partition}).
 
+get_preflist(Partition) ->
+    gen_server:call({global, generate_server_name(node())}, {get_preflist, Partition}).
+
 %%%% Internal API
 
 -spec start_link() -> {ok, pid()} | ignore | {error, term()}.
@@ -62,26 +66,19 @@ start_link() ->
     gen_server:start_link({global, generate_server_name(node())}, ?MODULE, [], []).
 
 init([]) ->
-    {ok, #state{partitions = #{}}}.
+    {ok, #state{partitions = recompute_groups(1)}}.
 
 handle_call(get_cluster, _From, #state{partitions = Partitions} = State) ->
     {reply, Partitions, State};
 handle_call({get_cluster, Partition}, _From, #state{partitions = Partitions} = State) ->
     {reply, maps:get(Partition, Partitions), State};
+handle_call({get_preflist, Partition}, _From, #state{partitions = Partitions} = State) ->
+    {reply, maps:get(membership, maps:get(Partition, Partitions)), State};
 handle_call(_Info, _From, State) ->
     {reply, error, State}.
 
 handle_cast(ring_changed, State) ->
-    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-    AllPrefs = riak_core_ring:all_preflists(Ring, 3), % TODO: @gmcabrita size is hardcoded for now
-    Partitions = lists:foldl(fun([{Partition, _} = Leader | _] = Membership, Acc) ->
-        Map = #{
-            leader => Leader,
-            membership => Membership
-        },
-        maps:put(Partition, Map, Acc)
-    end, #{}, AllPrefs),
-    {noreply, State#state{partitions = Partitions}};
+    {noreply, State#state{partitions = recompute_groups(3)}};
 handle_cast(_Info, State) ->
     {noreply, State}.
 
@@ -94,7 +91,17 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%%% External API
+%%%% Private
+
+recompute_groups(N) ->
+    {ok, Ring} = riak_core_ring_manager:get_my_ring(),
+    AllPrefs = riak_core_ring:all_preflists(Ring, N), % TODO: @gmcabrita size is hardcoded for now
+    lists:foldl(fun([{Partition, _} | _] = Membership, Acc) ->
+        Map = #{
+            membership => Membership
+        },
+        maps:put(Partition, Map, Acc)
+    end, #{}, AllPrefs).
 
 %% Generates a server name from a given node name.
 generate_server_name(Node) ->

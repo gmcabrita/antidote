@@ -365,7 +365,7 @@ handle_command({abort, Transaction, Updates}, _Sender,
     case Updates of
         [{Key, _Type,  _Update} | _Rest] ->
             LogId = log_utilities:get_logid_from_key(Key),
-            [Node] = log_utilities:get_preflist_from_key(Key),
+            Node = hd(log_utilities:get_preflist_from_key(Key)),
             LogRecord = #log_operation{tx_id = TxId, op_type = abort, log_payload = #abort_log_payload{}},
             Result = logging_vnode:append(Node,LogId, LogRecord),
             %% Result = logging_vnode:append(Node, LogId, {TxId, aborted}),
@@ -445,7 +445,7 @@ prepare(Transaction, TxWriteSet, CommittedTx, PreparedTx, PrepareTime, PreparedD
                         op_type = prepare,
                         log_payload = #prepare_log_payload{prepare_time = NewPrepare}},
                     LogId = log_utilities:get_logid_from_key(Key),
-                    [Node] = log_utilities:get_preflist_from_key(Key),
+                    Node = hd(log_utilities:get_preflist_from_key(Key)),
                     Result = logging_vnode:append(Node, LogId, LogRecord),
                     {Result, NewPrepare, NewPreparedDict};
                 _ ->
@@ -497,7 +497,7 @@ commit(Transaction, TxCommitTime, Updates, CommittedTx, State) ->
 		    ok
 	    end,
             LogId = log_utilities:get_logid_from_key(Key),
-            [Node] = log_utilities:get_preflist_from_key(Key),
+            Node = hd(log_utilities:get_preflist_from_key(Key)),
             case logging_vnode:append_commit(Node, LogId, LogRecord) of
                 {ok, _} ->
                     case update_materializer(Updates, Transaction, TxCommitTime) of

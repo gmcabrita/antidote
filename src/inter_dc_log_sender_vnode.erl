@@ -207,8 +207,7 @@ set_heartbeat_timer(State) ->
 set_heartbeat_timer(First, State = #state{partition = Partition}) ->
     case First of
         true ->
-            {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-            Node = riak_core_ring:index_owner(Ring, Partition),
+            Node = log_utilities:get_my_node(Partition),
             MyNode = node(),
             case Node of
                 MyNode ->
@@ -241,8 +240,7 @@ set_buffer_timer(State) ->
 set_buffer_timer(First, State = #state{partition = Partition}) ->
     case First of
         true ->
-            {ok, Ring} = riak_core_ring_manager:get_my_ring(),
-            Node = riak_core_ring:index_owner(Ring, Partition),
+            Node = log_utilities:get_my_node(Partition),
             MyNode = node(),
             case Node of
                 MyNode ->
