@@ -85,7 +85,7 @@ start_link() ->
     gen_server:start_link({global, generate_server_name(node())}, ?MODULE, [], []).
 
 init([]) ->
-    {ok, recompute_groups(1, #state{downed = [], heartbeat_timer = none, failure_timers = #{}})}.
+    {ok, recompute_groups(3, #state{downed = [], heartbeat_timer = none, failure_timers = #{}})}.
 
 handle_call(get_downed, _From, #state{downed = Downed} = State) ->
     {reply, Downed, State};
@@ -169,7 +169,11 @@ code_change(_OldVsn, State, _Extra) ->
 recompute_groups(N, State = #state{downed = Downed}) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     Cluster = riak_core_ring:all_members(Ring),
-    AllPrefs = riak_core_ring:all_preflists(Ring, N), % TODO: @gmcabrita size is hardcoded for now
+    NN = case Cluster < 5 of
+        true -> 1;
+        false -> N
+    end,
+    AllPrefs = riak_core_ring:all_preflists(Ring, NN),
     Partitions = lists:foldl(fun([{Partition, Leader} | _] = Membership, Acc) ->
         FCurrent = lists:filter(fun({_P, MN}) -> not lists:member(MN, Downed) end, Membership),
         Current = case lists:member(Leader, Downed) of

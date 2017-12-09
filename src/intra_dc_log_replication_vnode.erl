@@ -61,19 +61,15 @@ replicate(Partition, Buffer) ->
 start_vnode(I) -> riak_core_vnode_master:get_vnode_pid(I, ?MODULE).
 
 init([Partition]) ->
-    % TODO: @gmcabrita, read last_op from disk_log instead of defaulting to 0
-    {ok, #state{partition = Partition, last_ops = #{Partition => 0}}}.
+    {ok, #state{partition = Partition, last_ops = #{Partition => last_op_from_disk(Partition)}}}.
 
 handle_command({txn, OriginalPartition, Buffer}, _From, State) ->
     txn(OriginalPartition, Buffer, State);
 
 handle_command({run_txn, OriginalPartition, RemainingNodes, Buffer, OpNumber}, _From, State = #state{last_ops = CurrentOps}) ->
     CurrentOp = case maps:is_key(OriginalPartition, CurrentOps) of
-        true ->
-            maps:get(OriginalPartition, CurrentOps);
-        false ->
-            % TODO: @gmcabrita, read from disk_log
-            0
+        true -> maps:get(OriginalPartition, CurrentOps);
+        false -> last_op_from_disk(OriginalPartition)
     end,
     case OpNumber > CurrentOp of
         true -> {reply, {missing, CurrentOp}, State};
@@ -110,10 +106,9 @@ terminate(_Reason, _State) ->
 
 txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
     CurrentOp = maps:get(OriginalPartition, CurrentOps),
-    %% TODO: @gmcabrita, consider storing this locally and updating whenever it actually changes
     Cluster = intra_dc_leader_elector:get_cluster(OriginalPartition),
-    [_Leader, TargetNode | TargetRemainingNodes] = maps:get(membership, Cluster),
-    %% TODO: @gmcabrita, retry in case the call fails, also check if node is missing operations
+    [_Leader, TargetNode | TargetRemainingNodes] = maps:get(current, Cluster),
+    %% TODO: @gmcabrita, retry in case the call fails
     case riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer, CurrentOp}, intra_dc_log_replication_vnode_master) of
         ok -> ok;
         {missing, _Number} ->
@@ -128,7 +123,6 @@ txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
 run_txn(OriginalPartition, RemainingNodes, Buffer, CurrentOp, State = #state{last_ops = CurrentOps}) ->
     Log = open_log(OriginalPartition),
     lists:map(fun(LogRecord) -> disk_log:log(Log, {[OriginalPartition], LogRecord}) end, Buffer),
-    %lager:info("Node: ~p, replicated correctly for original partition ~p~n", [node(), OriginalPartition]),
     case RemainingNodes == [] of
         true -> ok;
         false ->
@@ -165,6 +159,39 @@ open_log(Partition) ->
         {repaired, Log, _, _} -> Log;
         {error, Reason} -> {error, Reason}
     end.
+
+last_op_from_disk(Partition) ->
+    case open_log(Partition) of
+        {error, _Reason} -> 0;
+        Log -> get_last_op_from_log(Log, start, 0)
+    end.
+
+get_last_op_from_log(Log, Continuation, MaxOp) ->
+    ok = disk_log:sync(Log),
+    case disk_log:chunk(Log, Continuation) of
+        eof -> {eof, MaxOp};
+        {error, Reason} -> {error, Reason};
+        {NewContinuation, NewTerms} ->
+            NewMaxOp = get_max_op_number(NewTerms, MaxOp),
+            get_last_op_from_log(Log, NewContinuation, NewMaxOp);
+        {NewContinuation, NewTerms, BadBytes} ->
+            case BadBytes > 0 of
+                true -> {error, bad_bytes};
+                false ->
+                    NewMaxOp = get_max_op_number(NewTerms, MaxOp),
+                    get_last_op_from_log(Log, NewContinuation, NewMaxOp)
+        end
+    end.
+
+get_max_op_number([], MaxOp) ->
+    MaxOp;
+get_max_op_number([{_LogId, #log_record{op_number = #op_number{local = N}}} | Rest], MaxOp) ->
+    New = case N > MaxOp of
+        true -> N;
+        false -> MaxOp
+    end,
+    get_max_op_number(Rest, New).
+
 
 filter_buffer(Buffer) ->
     lists:filter(fun(LogRecord) ->
