@@ -146,7 +146,7 @@ loop_until_loaded(Node, LogId, Continuation, Ops, State) ->
 	{error, Reason} ->
 	    {error, Reason};
 	{NewContinuation, NewOps, OpsDict} ->
-        lager:info("Reloading ops: ~p~n", [OpsDict]),
+        lager:debug("Reloading ops: ~p~n", [OpsDict]),
 	    load_ops(OpsDict, State),
 	    loop_until_loaded(Node, LogId, NewContinuation, NewOps, State);
 	{eof, OpsDict} ->
