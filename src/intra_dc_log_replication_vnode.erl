@@ -111,10 +111,11 @@ txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
     %% TODO: @gmcabrita, retry in case the call fails
     case riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer, CurrentOp}, intra_dc_log_replication_vnode_master) of
         ok -> ok;
-        {missing, _Number} ->
-            % TODO: @gmcabrita, read 'OldBuffer' from log from Number till CurrentOp
-            % Send OldBuffer, after ok send Buffer
-            ok
+        {missing, Number} ->
+            % load buffer of missing operations, send it, then retry
+            OldBuffer = load_buffer(OriginalPartition, Number, CurrentOp),
+            ok = riak_core_vnode_master:sync_command(TargetNode, {recover, OriginalPartition, OldBuffer, Number}, intra_dc_log_replication_vnode_master),
+            ok = riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer, CurrentOp}, intra_dc_log_replication_vnode_master)
     end,
     LastRecord = lists:last(Buffer),
     LastOp = LastRecord#log_record.op_number#op_number.local,
@@ -149,6 +150,14 @@ run_txn(OriginalPartition, RemainingNodes, Buffer, CurrentOp, State = #state{las
     LastRecord = lists:last(Buffer),
     LastOp = LastRecord#log_record.op_number#op_number.local,
     {reply, ok, State#state{last_ops = maps:put(OriginalPartition, LastOp, CurrentOps)}}.
+
+load_buffer(Partition, From, To) ->
+    {ok, RawOpList} = logging_vnode:read({Partition, node()}, [Partition]),
+    OpList = lists:map(fun({_Partition, Op}) -> Op end, RawOpList),
+    lists:filter(fun(Op) ->
+        Num = Op#log_record.op_number#op_number.local,
+        (Num >= From) and (To >= Num)
+    end, OpList).
 
 open_log(Partition) ->
     LogFile = integer_to_list(Partition),
