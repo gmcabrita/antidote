@@ -53,8 +53,7 @@
     store_ss/4,
     update/2,
     tuple_to_key/2,
-    belongs_to_snapshot_op/3,
-    reload/1
+    belongs_to_snapshot_op/3
 ]).
 
 %% Callbacks
@@ -76,11 +75,6 @@
 
 start_vnode(I) ->
     riak_core_vnode_master:get_vnode_pid(I, ?MODULE).
-
-reload(Partition) ->
-    ok = riak_core_vnode_master:sync_command({Partition, node()}, reload, materializer_vnode_master),
-    riak_core_vnode_master:command({Partition, node()}, load_from_log, materializer_vnode_master),
-    ok.
 
 %% @doc Read state of key at given snapshot time, this does not touch the vnode process
 %%      directly, instead it just reads from the operations and snapshot tables that
@@ -489,7 +483,7 @@ belongs_to_snapshot_op(SSTime, {OpDc,OpCommitTime}, OpSs) ->
 %%      Garbage collection triggered by reads.
 -spec snapshot_insert_gc(key(), vector_orddict:vector_orddict(),
                          boolean(),#mat_state{}) -> true.
-snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #mat_state{snapshot_cache = SnapshotCache, ops_cache = OpsCache})->
+snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #mat_state{is_ready = IsReady, snapshot_cache = SnapshotCache, ops_cache = OpsCache})->
     %% Perform the garbage collection when the size of the snapshot dict passed the threshold
     %% or when a GC is forced (a GC is forced after every ?OPS_THRESHOLD ops are inserted into the cache)
     %% Should check op size here also, when run from op gc
@@ -540,7 +534,7 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #mat_state{snapshot_cache = Snap
             [] -> nil;
             [{_, O} | _] -> O#clocksi_payload.type
         end,
-        case antidote_ccrdt:generates_extra_operations(Type) of
+        case IsReady and antidote_ccrdt:generates_extra_operations(Type) of
             true ->
                 PrunedOpsList = lists:map(fun({_, Op}) -> Op end, PrunedOps),
                 {_, OldestSnapshotTuple} = vector_orddict:last(OldSnapshotDict),
