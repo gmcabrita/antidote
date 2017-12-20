@@ -34,7 +34,7 @@
 
 %% tests
 -export([
-    leader_test/1
+    replication_test/1
 ]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -58,30 +58,60 @@ end_per_testcase(_, _) ->
     ok.
 
 all() -> [
-    leader_test
+    replication_test
 ].
 
-leader_test(Config) ->
-    lager:info("Leader test starting."),
+replication_test(Config) ->
+    lager:info("Replication test starting."),
     Cluster = proplists:get_value(clusters, Config),
-    Leaders = lists:map(fun(Node) ->
-        ct:print("~p~n", [rpc:call(Node, log_utilities, get_preflist_from_key, [1])]),
-        ct:print("~p~n", [rpc:call(Node, log_utilities, get_preflist_from_key, [2])]),
-        rpc:call(Node, intra_dc_leader_elector, get_leader, [])
+    Clusters = lists:map(fun(Node) ->
+        rpc:call(Node, intra_dc_leader_elector, get_cluster, [])
     end, Cluster),
-    [Leader | _] = Leaders,
-    %% note: we should probably check for majority instead
-    ?assertEqual(lists:duplicate(3, Leader), Leaders),
-    test_utils:kill_nodes([Leader]),
+    [ClusterState | _] = Clusters,
+
+    % Check that groups are consistent
+    ?assertEqual(lists:all(fun(X) -> X == ClusterState end, Clusters), true),
+
+    % Apply write
+    Key1 = simple_replication_test_dc,
+    Type = antidote_crdt_counter,
+    Bucket = intradc_test,
+    WriteResult1 = rpc:call(hd(Cluster),
+                            antidote, update_objects,
+                            [ignore, [], [{{Key1, Type, Bucket}, increment, 1}]]),
+    ?assertMatch({ok, _}, WriteResult1),
+
+    % Kill a node
+    test_utils:kill_nodes([hd(Cluster)]),
     ct:sleep(1000),
-    ct:print("Initial leader was: ~p~n", [Leader]),
-    Leaders2 = lists:map(fun(Node) ->
-        ct:print("~p~n", [rpc:call(Node, log_utilities, get_preflist_from_key, [1])]),
-        ct:print("~p~n", [rpc:call(Node, log_utilities, get_preflist_from_key, [2])]),
-        rpc:call(Node, intra_dc_leader_elector, get_leader, [])
-        end, Cluster -- [Leader]),
-    [Leader2 | _] = Leaders2,
-    %% note: we should probably check for majority instead
-    ?assertEqual(lists:duplicate(2, Leader2), Leaders2),
-    lager:info("Leader test passed."),
+    Clusters2 = lists:map(fun(Node) ->
+        rpc:call(Node, intra_dc_leader_elector, get_cluster, [])
+    end, tl(Cluster)),
+    [ClusterState2 | _] = Clusters2,
+    ?assertEqual(lists:all(fun(X) -> X == ClusterState2 end, Clusters2), true),
+
+
+    % Apply read
+    {ok, [ReadResult], _} = rpc:call(hd(tl(Cluster)), antidote, read_objects,
+                          [ignore, [], [{Key1, Type, Bucket}]]),
+    ?assertEqual(1, ReadResult),
+
+    % Recover
+    test_utils:restart_nodes([hd(Cluster)], Config),
+    ct:sleep(1000),
+
+    Clusters3 = lists:map(fun(Node) ->
+        rpc:call(Node, intra_dc_leader_elector, get_cluster, [])
+    end, Cluster),
+    [ClusterState3 | _] = Clusters3,
+    ?assertEqual(lists:all(fun(X) ->
+        case X == ClusterState3 of
+            true -> true;
+            false ->
+                ct:print("~p, ~p~n", [X, ClusterState3]),
+                false
+        end
+    end, Clusters3), true),
+
+    lager:info("Replication test passed."),
     pass.

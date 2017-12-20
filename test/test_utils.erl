@@ -190,7 +190,7 @@ start_node(Name, Config) ->
 
             PlatformDir = NodeDir ++ "/data/",
             RingDir = PlatformDir ++ "/ring/",
-            NumberOfVNodes = 4,
+            NumberOfVNodes = 8,
             filelib:ensure_dir(PlatformDir),
             filelib:ensure_dir(RingDir),
 
@@ -499,7 +499,7 @@ set_up_clusters_common(Config) ->
 set_up_dc_common(Config) ->
     Cluster = pmap(fun(N) ->
         start_node(N, Config)
-    end, [dev1, dev2, dev3]),
+    end, [dev1, dev2, dev3, dev4, dev5]),
     %% Do not join cluster if it is already done
     case owners_according_to(hd(Cluster)) of
       Cluster -> ok;
