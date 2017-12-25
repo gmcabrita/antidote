@@ -17,6 +17,9 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+%%
+%% This module is responsible for the logic and flow of the IntraDC
+%% replication.
 
 -module(intra_dc_log_replication_vnode).
 -behaviour(riak_core_vnode).
@@ -104,11 +107,12 @@ terminate(_Reason, _State) ->
 
 %%%% Private Functions
 
+% Runs the replication logic as the leader node
 txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
     CurrentOp = maps:get(OriginalPartition, CurrentOps),
     Cluster = intra_dc_leader_elector:get_cluster(OriginalPartition),
     [_Leader, TargetNode | TargetRemainingNodes] = maps:get(current, Cluster),
-    %% TODO: @gmcabrita, retry in case the call fails
+    %% TODO: retry in case the call fails
     case riak_core_vnode_master:sync_command(TargetNode, {run_txn, OriginalPartition, TargetRemainingNodes, Buffer, CurrentOp}, intra_dc_log_replication_vnode_master) of
         ok -> ok;
         {missing, Number} ->
@@ -121,13 +125,14 @@ txn(OriginalPartition, Buffer, State = #state{last_ops = CurrentOps}) ->
     LastOp = LastRecord#log_record.op_number#op_number.local,
     {reply, ok, State#state{last_ops = maps:put(OriginalPartition, LastOp, CurrentOps)}}.
 
+% Runs the replication logic as a follower node
 run_txn(OriginalPartition, RemainingNodes, Buffer, CurrentOp, State = #state{last_ops = CurrentOps}) ->
     Log = open_log(OriginalPartition),
     lists:map(fun(LogRecord) -> disk_log:log(Log, {[OriginalPartition], LogRecord}) end, Buffer),
     case RemainingNodes == [] of
         true -> ok;
         false ->
-            %% TODO: @gmcabrita, we use 1 here because we're assuming we always have N=3
+            %% TODO: we use 1 here because we're assuming we always have N=3
             %% If N ever changes, the sync_command has to be adjusted too, as the quorum will increase
             %% so the call will need to be synchronous for more nodes down the chain
             NextBuffer = case length(RemainingNodes) == 1 of

@@ -17,6 +17,13 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+%%
+%% This module is responsible for maintaining the cluster of consensus
+%% groups for each partition, and keeping track of the nodes that may
+%% have partitioned or crashed.
+%%
+%% When the riak core ring changes the cluster should automatically
+%% update as well.
 
 -module(intra_dc_leader_elector).
 -behaviour(gen_server).
@@ -48,35 +55,30 @@
 
 %% GenServer state
 -record(state, {
-    cluster :: [node()],
-    downed :: [node()],
-    failure_timers :: map(), % map<node(), reference()],
-    heartbeat_timer :: reference(),
-    partitions :: map() % map<partition(), cluster()>
+    cluster :: [node()], % the list of unique antidote nodes in the cluster
+    downed :: [node()], % the list of crashed/partitioned nodes in the cluster
+    failure_timers :: map(), % map of nodes to their failure timers
+    heartbeat_timer :: reference(), % this node's heartbeat timer
+    partitions :: map() % map of partitions to their group status
 }).
 
 %%%% External API
 
+% Signals that the riak core ring has changed, should only be called from antidote_ring_event_handler
 ring_changed() ->
     gen_server:cast({global, generate_server_name(node())}, ring_changed).
 
+% Returns the current cluster information for all of the groups
 get_cluster() ->
     gen_server:call({global, generate_server_name(node())}, get_cluster).
 
+% Returns the current cluster information for a the given group (partition)
 get_cluster(Partition) ->
     gen_server:call({global, generate_server_name(node())}, {get_cluster, Partition}).
 
+% Returns the preference list for the given partition
 get_preflist(Partition) ->
     gen_server:call({global, generate_server_name(node())}, {get_preflist, Partition}).
-
-run_heartbeat() ->
-    gen_server:cast({global, generate_server_name(node())}, run_heartbeat).
-
-run_failure(Node) ->
-    gen_server:cast({global, generate_server_name(node())}, {run_failure, Node}).
-
-get_downed() ->
-    gen_server:call({global, generate_server_name(node())}, get_downed).
 
 %%%% Internal API
 
@@ -166,6 +168,15 @@ code_change(_OldVsn, State, _Extra) ->
 
 %%%% Private
 
+run_heartbeat() ->
+    gen_server:cast({global, generate_server_name(node())}, run_heartbeat).
+
+run_failure(Node) ->
+    gen_server:cast({global, generate_server_name(node())}, {run_failure, Node}).
+
+get_downed() ->
+    gen_server:call({global, generate_server_name(node())}, get_downed).
+
 recompute_groups(N, State = #state{downed = Downed}) ->
     {ok, Ring} = riak_core_ring_manager:get_my_ring(),
     Cluster = riak_core_ring:all_members(Ring),
@@ -196,7 +207,7 @@ recompute_groups(N, State = #state{downed = Downed}) ->
 
 %% Generates a server name from a given node name.
 generate_server_name(Node) ->
-    list_to_atom("intra_dc_leader_elector" ++ atom_to_list(Node)).
+    list_to_atom("intradc_" ++ atom_to_list(Node)).
 
 set_timers(State) ->
     set_failure_timers(set_heartbeat_timer(State)).
