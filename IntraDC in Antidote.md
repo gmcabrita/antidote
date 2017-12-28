@@ -36,3 +36,95 @@ The deployment a local cluster can be done as follows:
 ```
 
 After this you will have a 5 node local cluster deployment and can issue transactions via rpc. Some escripts are available in `./txn.erl` and `./txn_ccrdt.erl` which use erlang rpc to execute transactions for quick experiments.
+
+## Algorithms
+
+### Group Management
+
+```
+state {
+  cluster # list of antidote nodes belonging to the cluster
+  downed # list of crashed/partitioned nodes
+  partitions # map of unique partitions to their group
+}
+
+on RingChange, recompute_groups()
+
+# send a heartbeat to every other node periodically
+periodically, rpc:heartbeat(self()) @ state.cluster
+
+# if no heartbeat is received from a node consider node as downed
+# this failure timer is reset if a heartbeat is received
+periodically, failure(node)
+
+recompute_groups() {
+  state.cluster = get_unique_ring_nodes()
+  state.partitions = ring_preflists_to_map(get_unique_ring_preflists())
+}
+
+heartbeat(node) {
+  if node in state.downed {
+    state.downed -= node
+  }
+  
+  reset_failure_timer(node)
+}
+
+failure(node) {
+  state.downed += node
+}
+
+get_cluster(partition) {
+  return state.partitions[partition] - state.downed
+}
+```
+
+### Replication
+
+As leader:
+
+```
+state {
+  current_op # number of the last processed operation
+}
+
+replicate(txn_buffer, original_partition) ->  ok | error(Reason) {
+  cluster = get_cluster(original_partition) - self()
+  target_node = head(cluster)
+  
+  store_reliably(original_partition, txn_buffer)
+  state.current_op = last_op_number(txn_buffer)
+  
+  return rpc:replicate(target_node, txn_buffer, original_partition, tail(cluster)) @ target_node
+}
+```
+
+As follower:
+
+```
+state {
+  current_op # number of the last processed operation
+}
+
+replicate(txn_buffer, original_partition, remaining_nodes) -> ok | error(Reason) {
+  match check_missing_ops(txn_buffer, state) {
+    (true, N) ->
+      match rpc:request_ops(state.current_op, N) @ sender() {
+        (ok, missing_txn_buffer) ->
+          store_reliably(original_partition, missing_txn_buffer)
+        error(Reason) ->
+          return error(Reason)
+      }
+  }
+  
+  store_reliably(original_partition, txn_buffer)
+  state.current_op = last_op_number(txn_buffer)
+  
+  if is_empty(remaining_nodes) {
+    return ok
+  }
+
+  target_node = head(remaining_nodes)
+  return rpc:replicate(txn_buffer, original_partition, tail(remaining_nodes)) @ target_node
+}
+```
