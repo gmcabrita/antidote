@@ -60,7 +60,7 @@ get_address_list() ->
     {ok, {_, _, StrIp}} = httpc:request(get, {"http://checkip.amazonaws.com/", []}, [], []),
     {ok, Ip} = inet_parse:address(string:strip(StrIp, right, $\n)),
     {Fst,Snd,Thd,_Fth} = Ip,
-    List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
+    List = [{Ip, {Fst, Snd, Thd, 255}, {255, 255, 255, 0}} | tl(IpList)],
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
     [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
 
