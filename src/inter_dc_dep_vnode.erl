@@ -112,7 +112,7 @@ process_queue(DCID, {State, Acc}) ->
                     {Node, _} = Txn#interdc_txn.dcid,
                     WriteSet = records_to_writeset(Txn#interdc_txn.log_records),
                     WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, WriteSet),
-                    SnapshotList = lists:sort(lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Txn#interdc_txn.snapshot))),
+                    SnapshotList = lists:sort(lists:map(fun({{Node_, _}, Time_}) -> {Node_, Time_} end, dict:to_list(Txn#interdc_txn.snapshot))),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
                         {txn_id, TxnStart, Node},
