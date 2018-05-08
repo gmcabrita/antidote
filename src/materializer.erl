@@ -24,12 +24,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--export([create_snapshot/1,
-         update_snapshot/3,
-         materialize_eager/3,
-         check_operations/1,
-         check_operation/1
-        ]).
+-export([
+    create_snapshot/1,
+    update_snapshot/3,
+    materialize_eager/3,
+    check_operations/1,
+    check_operation/1,
+    belongs_to_snapshot_op/3]).
 
 %% @doc Creates an empty CRDT
 -spec create_snapshot(type()) -> snapshot().
@@ -85,11 +86,22 @@ check_operation(Op) ->
             false
     end.
 
+%% Should be called doesn't belong in SS
+%% returns true if op is more recent than SS (i.e. is not in the ss)
+%% returns false otw
+-spec belongs_to_snapshot_op(snapshot_time() | ignore, dc_and_commit_time(), snapshot_time()) -> boolean().
+belongs_to_snapshot_op(ignore, {_OpDc, _OpCommitTime}, _OpSs) ->
+    true;
+belongs_to_snapshot_op(SSTime, {OpDc, OpCommitTime}, OpSs) ->
+    OpSs1 = dict:store(OpDc, OpCommitTime, OpSs),
+    not vectorclock:le(OpSs1, SSTime).
+
+
 -ifdef(TEST).
 
 %% Testing update with pn_counter.
 update_pncounter_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Op = 1,
@@ -98,7 +110,7 @@ update_pncounter_test() ->
 
 %% Testing pn_counter with update log
 materializer_counter_withlog_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [1,
@@ -111,7 +123,7 @@ materializer_counter_withlog_test() ->
 
 %% Testing counter with empty update log
 materializer_counter_emptylog_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [],
@@ -124,27 +136,50 @@ materializer_error_nocreate_test() ->
 
 %% Testing crdt with invalid update operation
 materializer_error_invalidupdate_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [{non_existing_op_type, {non_existing_op, actor1}}],
     ?assertEqual({error, {unexpected_operation,
                     {non_existing_op_type, {non_existing_op, actor1}},
-                    antidote_crdt_counter}},
+                    antidote_crdt_counter_pn}},
                  materialize_eager(Type, Counter, Ops)).
 
 %% Testing that the function check_operations works properly
 check_operations_test() ->
     Operations =
-        [{read, {key1, antidote_crdt_counter}},
-         {update, {key1, antidote_crdt_counter, increment}}
+        [{read, {key1, antidote_crdt_counter_pn}},
+         {update, {key1, antidote_crdt_counter_pn, increment}}
         ],
     ?assertEqual(ok, check_operations(Operations)),
 
-    Operations2 = [{read, {key1, antidote_crdt_counter}},
-        {update, {key1, antidote_crdt_counter, {{add, elem}, a}}},
-        {update, {key2, antidote_crdt_counter, {increment, a}}},
-        {read, {key1, antidote_crdt_counter}}],
+    Operations2 = [{read, {key1, antidote_crdt_counter_pn}},
+        {update, {key1, antidote_crdt_counter_pn, {{add, elem}, a}}},
+        {update, {key2, antidote_crdt_counter_pn, {increment, a}}},
+        {read, {key1, antidote_crdt_counter_pn}}],
     ?assertMatch({error, _}, check_operations(Operations2)).
 
+%% Testing belongs_to_snapshot returns true when a commit time
+%% is smaller than a snapshot time
+belongs_to_snapshot_test() ->
+    CommitTime1a = 1,
+    CommitTime2a = 1,
+    CommitTime1b = 1,
+    CommitTime2b = 7,
+    SnapshotClockDC1 = 5,
+    SnapshotClockDC2 = 5,
+    CommitTime3a = 5,
+    CommitTime4a = 5,
+    CommitTime3b = 10,
+    CommitTime4b = 10,
+
+    SnapshotVC=vectorclock:from_list([{1, SnapshotClockDC1}, {2, SnapshotClockDC2}]),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime1a}, {2, CommitTime1b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime2a}, {2, CommitTime2b}]), {2, SnapshotClockDC2}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime3a}, {2, CommitTime3b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime4a}, {2, CommitTime4b}]), {2, SnapshotClockDC2}, SnapshotVC)).
 -endif.
