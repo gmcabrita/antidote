@@ -62,7 +62,7 @@ get_address_list() ->
     {Fst,Snd,Thd,_Fth} = Ip,
     List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
-    [{Ip1, Port} || Ip1 <- IpList, Ip1 /= {127, 0, 0, 1}].
+    [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
 
 -spec broadcast(#interdc_txn{}) -> ok.
 broadcast(Txn) ->

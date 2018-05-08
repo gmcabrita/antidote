@@ -67,7 +67,7 @@ get_address_list() ->
     {Fst,Snd,Thd,_Fth} = Ip,
     List = [{Ip, {Fst,Snd,Thd,255}, {255,255,255,0}} | tl(IpList)],
     Port = application:get_env(antidote, logreader_port, ?DEFAULT_LOGREADER_PORT),
-    AddressList = [{Ip1, Port} || Ip1 <- IpList, Ip1 /= {127, 0, 0, 1}],
+    AddressList = [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}],
     {PartitionList, AddressList}.
 
 -spec send_response(binary(), #inter_dc_query_state{}) -> ok.
