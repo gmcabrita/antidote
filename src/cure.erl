@@ -180,7 +180,7 @@ transform_reads(States, StateOrValue, Objects) ->
                     {ok, SS} = dc_utilities:get_stable_snapshot(),
                     Now = dc_utilities:now_microsec(),
                     DcId = dc_meta_data_utilities:get_my_dc_id(),
-                    SnapshotTime = lists:sort(lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(vectorclock:set_clock_of_dc(DcId, Now, SS)))),
+                    SnapshotTime = lists:sort(lists:map(fun({{Node_, _}, Time_}) -> {Node_, Time_} end, dict:to_list(vectorclock:set_clock_of_dc(DcId, Now, SS)))),
                 ets:insert(divergence_reads, {
                     {time, Now},
                     {vector, SnapshotTime},

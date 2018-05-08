@@ -327,7 +327,7 @@ handle_command({single_commit, Transaction, WriteSet}, _Sender,
                 {ok, committed, NewPreparedDict2} ->
                     TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
                     {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
-                    SnapshotList = lists:sort(lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Transaction#transaction.vec_snapshot_time))),
+                    SnapshotList = lists:sort(lists:map(fun({{Node_, _}, Time_}) -> {Node_, Time_} end, dict:to_list(Transaction#transaction.vec_snapshot_time))),
                     WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, WriteSet),
                     ets:insert(divergence, {
                         {time, dc_utilities:now_microsec()},
@@ -365,7 +365,7 @@ handle_command({commit, Transaction, TxCommitTime, Updates}, _Sender,
         {ok, committed, NewPreparedDict} ->
             TxnStart = Transaction#transaction.txn_id#tx_id.local_start_time,
             {Node, _} = dc_meta_data_utilities:get_my_dc_id(),
-            SnapshotList = lists:sort(lists:map(fun({{Node, _}, Time}) -> {Node, Time} end, dict:to_list(Transaction#transaction.vec_snapshot_time))),
+            SnapshotList = lists:sort(lists:map(fun({{Node_, _}, Time_}) -> {Node_, Time_} end, dict:to_list(Transaction#transaction.vec_snapshot_time))),
             WS = lists:map(fun({{Key, Bucket}, Type, _}) -> {Key, Type, Bucket} end, Updates),
             ets:insert(divergence, {
                 {time, dc_utilities:now_microsec()},
