@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,11 +18,14 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
+
 -module(vectorclock_vnode).
 
 -behaviour(riak_core_vnode).
@@ -49,13 +58,15 @@
   handle_handoff_data/2,
   encode_handoff_item/2,
   handle_coverage/4,
-  handle_exit/3
+  handle_exit/3,
+  handle_overload_command/3,
+  handle_overload_info/2
 ]).
 
 -ignore_xref([start_vnode/1]).
 
--define(META_PREFIX, {partition,vectorclock}).
--define(META_PREFIX_SS, {partition_ss,vectorclock}).
+-define(META_PREFIX, {partition, vectorclock}).
+-define(META_PREFIX_SS, {partition_ss, vectorclock}).
 
 %% Vnode state
 -record(state, {
@@ -65,7 +76,7 @@
 
 %%%% API --------------------------------------------------------------------+
 
-get_stable_snapshot() -> riak_core_metadata:get(?META_PREFIX_SS, 1, [{default,dict:new()}]).
+get_stable_snapshot() -> riak_core_metadata:get(?META_PREFIX_SS, 1, [{default, dict:new()}]).
 
 recalculate_stable_snapshot(Partition) ->
   dc_utilities:call_vnode(Partition, vectorclock_vnode_master, calculate_stable_snapshot).
@@ -124,25 +135,29 @@ metadata_maybe_list(Prefix) ->
     Normal -> Normal
   end.
 
-handle_handoff_command( _Message , _Sender, State) -> 
+handle_handoff_command( _Message , _Sender, State) ->
     {noreply, State}.
-handoff_starting(_TargetNode, State) -> 
+handoff_starting(_TargetNode, State) ->
     {true, State}.
-handoff_cancelled(State) -> 
+handoff_cancelled(State) ->
     {ok, State}.
-handoff_finished(_TargetNode, State) -> 
+handoff_finished(_TargetNode, State) ->
     {ok, State}.
-handle_handoff_data(_Data, State) -> 
+handle_handoff_data(_Data, State) ->
     {reply, ok, State}.
-encode_handoff_item(Key, Operation) -> 
+encode_handoff_item(Key, Operation) ->
     term_to_binary({Key, Operation}).
-is_empty(State) -> 
+is_empty(State) ->
     {true, State}.
-delete(State) -> 
+delete(State) ->
     {ok, State}.
-handle_coverage(_Req, _KeySpaces, _Sender, State) -> 
+handle_coverage(_Req, _KeySpaces, _Sender, State) ->
     {stop, not_implemented, State}.
-handle_exit(_Pid, _Reason, State) -> 
+handle_exit(_Pid, _Reason, State) ->
     {noreply, State}.
-terminate(_Reason, _State) -> 
+terminate(_Reason, _State) ->
+    ok.
+handle_overload_command(_, _, _) ->
+    ok.
+handle_overload_info(_, _) ->
     ok.

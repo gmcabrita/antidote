@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% Module for handling bounded counter operations.
@@ -45,9 +53,11 @@
 -include("antidote.hrl").
 -include("inter_dc_repl.hrl").
 
--record(state, {req_queue, last_transfers, transfer_timer}).
+-record(state, {req_queue :: orddict:orddict(),
+                last_transfers :: orddict:orddict(),
+                transfer_timer :: reference()}).
 -define(LOG_UTIL, log_utilities).
--define(DATA_TYPE, antidote_crdt_bcounter).
+-define(DATA_TYPE, antidote_crdt_counter_b).
 
 
 
@@ -69,7 +79,7 @@ init([]) ->
 %% is generated.
 generate_downstream(Key, {decrement, {V, _}}, BCounter) ->
     MyDCId = dc_meta_data_utilities:get_my_dc_id(),
-    gen_server:call(?MODULE, {consume, Key, {decrement, {V,MyDCId}}, BCounter});
+    gen_server:call(?MODULE, {consume, Key, {decrement, {V, MyDCId}}, BCounter});
 
 %% @doc Processes an increment operation for the bounded counter.
 %% Operation is always safe.
@@ -90,20 +100,22 @@ process_transfer({transfer, TransferOp}) ->
 %% Callbacks
 %% ===================================================================
 
-handle_cast({transfer, {Key,Amount,Requester}}, #state{last_transfers=LT}=State) ->
+handle_cast({transfer, {Key, Amount, Requester}}, #state{last_transfers=LT}=State) ->
     NewLT = cancel_consecutive_req(LT, ?GRACE_PERIOD),
     MyDCId = dc_meta_data_utilities:get_my_dc_id(),
     case can_process(Key, Requester, NewLT) of
         true ->
-            antidote:append(Key, ?DATA_TYPE, {transfer, {Amount, Requester, MyDCId}}),
+            {SKey, Bucket} = Key,
+            BObj = {SKey, ?DATA_TYPE, Bucket},
+            antidote:update_objects(ignore, [], [{BObj, transfer, {Amount, Requester, MyDCId}}]),
             {noreply, State#state{last_transfers=orddict:store({Key, Requester}, erlang:timestamp(), NewLT)}};
         _ ->
             {noreply, State#state{last_transfers=NewLT}}
     end.
 
-handle_call({consume, Key, {Op,{Amount,_}}, BCounter}, _From, #state{req_queue=RQ}=State) ->
+handle_call({consume, Key, {Op, {Amount, _}}, BCounter}, _From, #state{req_queue=RQ}=State) ->
     MyDCId = dc_meta_data_utilities:get_my_dc_id(),
-    case ?DATA_TYPE:generate_downstream_check({Op,Amount}, MyDCId, BCounter, Amount) of
+    case ?DATA_TYPE:generate_downstream_check({Op, Amount}, MyDCId, BCounter, Amount) of
         {error, no_permissions} = FailedResult ->
             Available = ?DATA_TYPE:localPermissions(MyDCId, BCounter),
             UpdtQueue=queue_request(Key, Amount - Available, RQ),
@@ -112,7 +124,7 @@ handle_call({consume, Key, {Op,{Amount,_}}, BCounter}, _From, #state{req_queue=R
             {reply, Result, State}
     end.
 
-handle_info(transfer_periodic, #state{req_queue=RQ0,transfer_timer=OldTimer}=State) ->
+handle_info(transfer_periodic, #state{req_queue=RQ0, transfer_timer=OldTimer}=State) ->
     erlang:cancel_timer(OldTimer),
     RQ = clear_pending_req(RQ0, ?REQUEST_TIMEOUT),
     RQNew = orddict:fold(
@@ -132,7 +144,7 @@ handle_info(transfer_periodic, #state{req_queue=RQ0,transfer_timer=OldTimer}=Sta
                       end
               end, orddict:new(), RQ),
     NewTimer=erlang:send_after(?TRANSFER_FREQ, self(), transfer_periodic),
-    {noreply,State#state{transfer_timer=NewTimer, req_queue=RQNew}}.
+    {noreply, State#state{transfer_timer=NewTimer, req_queue=RQNew}}.
 
 terminate(_Reason, _State) ->
     ok.
@@ -147,14 +159,16 @@ queue_request(Key, Amount, RequestsQueue) ->
                       {ok, Value} -> Value;
                       error -> orddict:new()
                   end,
-    CurrTime = 	erlang:timestamp(),
+    CurrTime = erlang:timestamp(),
     orddict:store(Key, [{Amount, CurrTime} | QueueForKey], RequestsQueue).
 
 request_remote(0, _Key) -> 0;
 
 request_remote(RequiredSum, Key) ->
     MyDCId = dc_meta_data_utilities:get_my_dc_id(),
-    {ok,Obj} = antidote:read(Key, ?DATA_TYPE),
+    {SKey, Bucket} = Key,
+    BObj = {SKey, ?DATA_TYPE, Bucket},
+    {ok, [Obj], _} = antidote:read_objects(ignore, [], [BObj]),
     PrefList= pref_list(Obj),
     lists:foldl(
       fun({RemoteId, AvailableRemotely}, Remaining0) ->
@@ -171,8 +185,7 @@ request_remote(RequiredSum, Key) ->
       end, RequiredSum, PrefList).
 
 do_request(MyDCId, RemoteId, Key, Amount) ->
-    Preflist = ?LOG_UTIL:get_preflist_from_key(Key),
-    {LocalPartition, _} = hd(Preflist),
+    {LocalPartition, _} = ?LOG_UTIL:get_key_partition(Key),
     BinaryMsg = term_to_binary({request_permissions,
                                 {transfer, {Key, Amount, MyDCId}}, LocalPartition, MyDCId, RemoteId}),
     inter_dc_query:perform_request(?BCOUNTER_REQUEST, {RemoteId, LocalPartition},
@@ -196,19 +209,19 @@ pref_list(Obj) ->
                   end, [], OtherDCIds)).
 
 %% Request response - do nothing.
-request_response(_BinaryRep,_RequestCacheEntry) -> ok.
+request_response(_BinaryRep, _RequestCacheEntry) -> ok.
 
 cancel_consecutive_req(LastTransfers, Period) ->
-    CurrTime = 	erlang:timestamp(),
+    CurrTime = erlang:timestamp(),
     orddict:filter(
       fun(_, Timeout) ->
-              timer:now_diff(Timeout,CurrTime) < Period end, LastTransfers).
+              timer:now_diff(Timeout, CurrTime) < Period end, LastTransfers).
 
 clear_pending_req(LastRequests, Period) ->
-    CurrTime = 	erlang:timestamp(),
+    CurrTime = erlang:timestamp(),
     orddict:filter(fun(_, ListRequests) ->
                    FilteredList = lists:filter(fun({_, Timeout}) ->
-                                   timer:now_diff(Timeout,CurrTime) < Period end, ListRequests),
+                                   timer:now_diff(Timeout, CurrTime) < Period end, ListRequests),
                    length(FilteredList) /= 0
                    end , LastRequests).
 
@@ -224,5 +237,3 @@ can_process(Key, Requester, LastTransfers) ->
         true -> false
     end
     .
-
-

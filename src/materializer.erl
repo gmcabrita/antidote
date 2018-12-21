@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,11 +18,14 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
+
 -module(materializer).
 -include("antidote.hrl").
 
@@ -24,21 +33,22 @@
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--export([create_snapshot/1,
-         update_snapshot/3,
-         materialize_eager/3,
-         check_operations/1,
-         check_operation/1
-        ]).
+-export([
+    create_snapshot/1,
+    update_snapshot/3,
+    materialize_eager/3,
+    check_operations/1,
+    check_operation/1,
+    belongs_to_snapshot_op/3]).
 
 %% @doc Creates an empty CRDT
 -spec create_snapshot(type()) -> snapshot().
 create_snapshot(Type) ->
     Type:new().
 
-%% @doc Applies an operation to a snapshot of a crdt.
+%% @doc Applies an downstream effect to a snapshot of a crdt.
 %%      This function yields an error if the crdt does not have a corresponding update operation.
--spec update_snapshot(type(), snapshot(), op()) -> {ok, snapshot()} | {ok, snapshot(), [op()]} | {error, reason()}.
+-spec update_snapshot(type(), snapshot(), effect()) -> {ok, snapshot()} | | {ok, snapshot(), [effect()]} | {error, reason()}.
 update_snapshot(Type, Snapshot, Op) ->
     try
         case Type:update(Op, Snapshot) of
@@ -46,15 +56,15 @@ update_snapshot(Type, Snapshot, Op) ->
         end
     catch
         _:_ ->
-            {error, unexpected_format}
+            {error, {unexpected_operation, Op, Type}}
     end.
 
 %% @doc Applies updates in given order without any checks, errors are simply propagated.
--spec materialize_eager(type(), snapshot(), [op()]) -> snapshot() | {error, reason()}.
+-spec materialize_eager(type(), snapshot(), [effect()]) -> snapshot() | {error, {unexpected_operation, effect(), type()}}.
 materialize_eager(_Type, Snapshot, []) ->
     Snapshot;
-materialize_eager(Type, Snapshot, [Op | Rest]) ->
-    case update_snapshot(Type, Snapshot, Op) of
+materialize_eager(Type, Snapshot, [Effect | Rest]) ->
+    case update_snapshot(Type, Snapshot, Effect) of
         {error, Reason} ->
             {error, Reason};
         {ok, Result, _Ops} ->
@@ -64,8 +74,8 @@ materialize_eager(Type, Snapshot, [Op | Rest]) ->
     end.
 
 
-%% @doc Check that in a list of operations, all of them are correctly typed.
--spec check_operations(list()) -> ok | {error, {type_check, term()}}.
+%% @doc Check that in a list of client operations, all of them are correctly typed.
+-spec check_operations([client_op()]) -> ok | {error, {type_check_failed, client_op()}}.
 check_operations([]) ->
     ok;
 check_operations([Op | Rest]) ->
@@ -73,36 +83,47 @@ check_operations([Op | Rest]) ->
         true ->
             check_operations(Rest);
         false ->
-            {error, {type_check, Op}}
+            {error, {type_check_failed, Op}}
     end.
 
 %% @doc Check that an operation is correctly typed.
--spec check_operation(term()) -> boolean().
+-spec check_operation(client_op()) -> boolean().
 check_operation(Op) ->
     case Op of
         {update, {_, Type, Update}} ->
             (antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type)) andalso
                 Type:is_operation(Update);
         {read, {_, Type}} ->
-            (antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type));
+            antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type));
         _ ->
             false
     end.
 
+%% Should be called doesn't belong in SS
+%% returns true if op is more recent than SS (i.e. is not in the ss)
+%% returns false otw
+-spec belongs_to_snapshot_op(snapshot_time() | ignore, dc_and_commit_time(), snapshot_time()) -> boolean().
+belongs_to_snapshot_op(ignore, {_OpDc, _OpCommitTime}, _OpSs) ->
+    true;
+belongs_to_snapshot_op(SSTime, {OpDc, OpCommitTime}, OpSs) ->
+    OpSs1 = dict:store(OpDc, OpCommitTime, OpSs),
+    not vectorclock:le(OpSs1, SSTime).
+
+
 -ifdef(TEST).
 
-%% @doc Testing update with pn_counter.
+%% Testing update with pn_counter.
 update_pncounter_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Op = 1,
     {ok, Counter2} = update_snapshot(Type, Counter, Op),
     ?assertEqual(1, Type:value(Counter2)).
 
-%% @doc Testing pn_counter with update log
+%% Testing pn_counter with update log
 materializer_counter_withlog_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [1,
@@ -113,39 +134,65 @@ materializer_counter_withlog_test() ->
     Counter2 = materialize_eager(Type, Counter, Ops),
     ?assertEqual(7, Type:value(Counter2)).
 
-%% @doc Testing counter with empty update log
+%% Testing counter with empty update log
 materializer_counter_emptylog_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [],
     Counter2 = materialize_eager(Type, Counter, Ops),
     ?assertEqual(0, Type:value(Counter2)).
 
-%% @doc Testing non-existing crdt
+%% Testing non-existing crdt
 materializer_error_nocreate_test() ->
     ?assertException(error, undef, create_snapshot(bla)).
 
-%% @doc Testing crdt with invalid update operation
+%% Testing crdt with invalid update operation
 materializer_error_invalidupdate_test() ->
-    Type = antidote_crdt_counter,
+    Type = antidote_crdt_counter_pn,
     Counter = create_snapshot(Type),
     ?assertEqual(0, Type:value(Counter)),
     Ops = [{non_existing_op_type, {non_existing_op, actor1}}],
-    ?assertEqual({error, unexpected_format}, materialize_eager(Type, Counter, Ops)).
+    ?assertEqual({error, {unexpected_operation,
+                    {non_existing_op_type, {non_existing_op, actor1}},
+                    antidote_crdt_counter_pn}},
+                 materialize_eager(Type, Counter, Ops)).
 
-%% @doc Testing that the function check_operations works properly
+%% Testing that the function check_operations works properly
 check_operations_test() ->
     Operations =
-        [{read, {key1, antidote_crdt_counter}},
-         {update, {key1, antidote_crdt_counter, increment}}
+        [{read, {key1, antidote_crdt_counter_pn}},
+         {update, {key1, antidote_crdt_counter_pn, increment}}
         ],
     ?assertEqual(ok, check_operations(Operations)),
 
-    Operations2 = [{read, {key1, antidote_crdt_counter}},
-        {update, {key1, antidote_crdt_counter, {{add, elem}, a}}},
-        {update, {key2, antidote_crdt_counter, {increment, a}}},
-        {read, {key1, antidote_crdt_counter}}],
+    Operations2 = [{read, {key1, antidote_crdt_counter_pn}},
+        {update, {key1, antidote_crdt_counter_pn, {{add, elem}, a}}},
+        {update, {key2, antidote_crdt_counter_pn, {increment, a}}},
+        {read, {key1, antidote_crdt_counter_pn}}],
     ?assertMatch({error, _}, check_operations(Operations2)).
 
+%% Testing belongs_to_snapshot returns true when a commit time
+%% is smaller than a snapshot time
+belongs_to_snapshot_test() ->
+    CommitTime1a = 1,
+    CommitTime2a = 1,
+    CommitTime1b = 1,
+    CommitTime2b = 7,
+    SnapshotClockDC1 = 5,
+    SnapshotClockDC2 = 5,
+    CommitTime3a = 5,
+    CommitTime4a = 5,
+    CommitTime3b = 10,
+    CommitTime4b = 10,
+
+    SnapshotVC=vectorclock:from_list([{1, SnapshotClockDC1}, {2, SnapshotClockDC2}]),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime1a}, {2, CommitTime1b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(true, belongs_to_snapshot_op(
+                 vectorclock:from_list([{1, CommitTime2a}, {2, CommitTime2b}]), {2, SnapshotClockDC2}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime3a}, {2, CommitTime3b}]), {1, SnapshotClockDC1}, SnapshotVC)),
+    ?assertEqual(false, belongs_to_snapshot_op(
+                  vectorclock:from_list([{1, CommitTime4a}, {2, CommitTime4b}]), {2, SnapshotClockDC2}, SnapshotVC)).
 -endif.

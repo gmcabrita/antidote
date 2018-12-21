@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,11 +18,14 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
+
 -module(antidote_sup).
 
 -behaviour(supervisor).
@@ -24,8 +33,7 @@
 -include("antidote.hrl").
 
 %% API
--export([start_link/0,
-         start_metrics_collection/0
+-export([start_link/0
         ]).
 
 %% Supervisor callbacks
@@ -42,15 +50,6 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-%% Stats collector is not started with the supervisor. It has to be explicitly started
-start_metrics_collection() ->
-     StatsCollector = {
-                        antidote_stats_collector,
-                        {antidote_stats_collector, start_link, []},
-                        permanent, 5000, worker, [antidote_stats_collector]
-                      },
-    supervisor:start_child(?MODULE, StatsCollector).
-
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
@@ -64,15 +63,15 @@ init(_Args) ->
                       {riak_core_vnode_master, start_link, [clocksi_vnode]},
                       permanent, 5000, worker, [riak_core_vnode_master]},
 
-    ClockSIiTxCoordSup =  { clocksi_interactive_tx_coord_sup,
-                            {clocksi_interactive_tx_coord_sup, start_link, []},
+    ClockSIiTxCoordSup =  { clocksi_interactive_coord_sup,
+                            {clocksi_interactive_coord_sup, start_link, []},
                             permanent, 5000, supervisor,
-                            [clockSI_interactive_tx_coord_sup]},
+                            [clockSI_interactive_coord_sup]},
 
     ClockSIReadSup = {clocksi_readitem_sup,
-    		      {clocksi_readitem_sup, start_link, []},
-    		      permanent, 5000, supervisor,
-    		      [clocksi_readitem_sup]},
+                      {clocksi_readitem_sup, start_link, []},
+                      permanent, 5000, supervisor,
+                      [clocksi_readitem_sup]},
 
     MaterializerMaster = {materializer_vnode_master,
                           {riak_core_vnode_master,  start_link,
@@ -94,24 +93,50 @@ init(_Args) ->
 
 
     MetaDataManagerSup = {meta_data_manager_sup,
-			  {meta_data_manager_sup, start_link, [stable]},
-			  permanent, 5000, supervisor,
-			  [meta_data_manager_sup]},
+                          {meta_data_manager_sup, start_link, [stable]},
+                          permanent, 5000, supervisor,
+                          [meta_data_manager_sup]},
 
     MetaDataSenderSup = {meta_data_sender_sup,
-			  {meta_data_sender_sup, start_link, [stable_time_functions:export_funcs_and_vals()]},
-			  permanent, 5000, supervisor,
-			  [meta_data_sender_sup]},
+                         {meta_data_sender_sup, start_link, [stable_time_functions:export_funcs_and_vals()]},
+                         permanent, 5000, supervisor,
+                         [meta_data_sender_sup]},
 
     LogResponseReaderSup = {inter_dc_query_response_sup,
-			  {inter_dc_query_response_sup, start_link, [?INTER_DC_QUERY_CONCURRENCY]},
-			  permanent, 5000, supervisor,
-			  [inter_dc_query_response_sup]},
+                            {inter_dc_query_response_sup, start_link, [?INTER_DC_QUERY_CONCURRENCY]},
+                            permanent, 5000, supervisor,
+                            [inter_dc_query_response_sup]},
 
+    PbSup = #{id => antidote_pb_sup,
+              start => {antidote_pb_sup, start_link, []},
+              restart => permanent,
+              shutdown => 5000,
+              type => supervisor,
+              modules => [antidote_pb_sup]},
+
+
+    Config = [{mods, [{elli_prometheus, []}
+                     ]}
+             ],
+    MetricsPort = application:get_env(antidote, metrics_port, 3001),
+    ElliOpts = [{callback, elli_middleware}, {callback_args, Config}, {port, MetricsPort}],
+    Elli = {elli_server,
+            {elli, start_link, [ElliOpts]},
+            permanent,
+            5000,
+            worker,
+            [elli]},
+
+    StatsCollector = {
+                       antidote_stats_collector,
+                       {antidote_stats_collector, start_link, []},
+                       permanent, 5000, worker, [antidote_stats_collector]
+                     },
 
     {ok,
      {{one_for_one, 5, 10},
-      [LoggingMaster,
+      [StatsCollector,
+       LoggingMaster,
        ClockSIMaster,
        ClockSIiTxCoordSup,
        ClockSIReadSup,
@@ -128,4 +153,6 @@ init(_Args) ->
        MetaDataManagerSup,
        MetaDataSenderSup,
        BCounterManager,
-       LogResponseReaderSup]}}.
+       LogResponseReaderSup,
+       PbSup,
+       Elli]}}.

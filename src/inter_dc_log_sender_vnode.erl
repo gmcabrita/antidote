@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% Each logging_vnode informs this vnode about every new appended operation.
@@ -31,27 +39,29 @@
 
 %% API
 -export([
-    send/2,
-    update_last_log_id/2,
-    start_timer/1,
-    send_stable_time/2]).
+     send/2,
+     update_last_log_id/2,
+     start_timer/1,
+     send_stable_time/2]).
 
 %% VNode methods
 -export([
-    init/1,
-    start_vnode/1,
-    handle_command/3,
-    handle_coverage/4,
-    handle_exit/3,
-    handoff_starting/2,
-    handoff_cancelled/1,
-    handoff_finished/2,
-    handle_handoff_command/3,
-    handle_handoff_data/2,
-    encode_handoff_item/2,
-    is_empty/1,
-    terminate/2,
-    delete/1]).
+  init/1,
+  start_vnode/1,
+  handle_command/3,
+  handle_coverage/4,
+  handle_exit/3,
+  handoff_starting/2,
+  handoff_cancelled/1,
+  handoff_finished/2,
+  handle_handoff_command/3,
+  handle_handoff_data/2,
+  encode_handoff_item/2,
+  is_empty/1,
+  terminate/2,
+  delete/1,
+  handle_overload_command/3,
+  handle_overload_info/2]).
 
 %% Vnode state
 -record(state, {
@@ -163,7 +173,7 @@ handle_exit(_Pid, _Reason, State) ->
 handoff_starting(_TargetNode, State) ->
     {true, State}.
 handoff_cancelled(State) ->
-     S1 = set_heartbeat_timer(State),
+    S1 = set_heartbeat_timer(State),
     {ok, set_buffer_timer(S1)}.
 handoff_finished(_TargetNode, State) ->
     {ok, State}.
@@ -180,6 +190,10 @@ delete(State) ->
 terminate(_Reason, State) ->
     _ = del_heartbeat_timer(State),
     _ = del_buffer_timer(State),
+    ok.
+handle_overload_command(_, _, _) ->
+    ok.
+handle_overload_info(_, _) ->
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%

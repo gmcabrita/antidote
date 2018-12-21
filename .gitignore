@@ -3,7 +3,6 @@ _build/
 .eunit
 rel/antidote
 dev
-apps/antidote/*
 *.swp
 *.swo
 src/*.swo
@@ -15,7 +14,6 @@ doc/
 logs/
 tags
 rel/vars/*.config
-rebar.lock
 docs/_site/
 docs/.sass-cache/
 docs/.jekyll-metadata
@@ -29,3 +27,6 @@ log.*/
 erl_crash.dump
 rebar3.crashdump
 test/.rebar3/erlcinfo
+.idea/
+antidote.iml
+edoc/

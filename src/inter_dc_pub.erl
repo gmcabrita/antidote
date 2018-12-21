@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% InterDC publisher - holds a ZeroMQ PUB socket and makes it available for Antidote processes.
@@ -50,17 +58,32 @@
 
 -spec get_address() -> socket_address().
 get_address() ->
-  %% TODO check if we do not return a link-local address
-  {ok, List} = inet:getif(),
-  {Ip, _, _} = hd(List),
+  %% first try resolving our hostname according to the node name
+  [_, Hostname] = string:tokens(atom_to_list(erlang:node()), "@"),
+  Ip = case inet:getaddr(Hostname, inet) of
+    {ok, HostIp} -> HostIp;
+    {error, _} ->
+      %% cannot resolve hostname locally, fall back to interface ip
+      %% TODO check if we do not return a link-local address
+      {ok, List} = inet:getif(),
+      {IIp, _, _} = hd(List),
+      IIp
+  end,
   Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
   {Ip, Port}.
 
 -spec get_address_list() -> [socket_address()].
 get_address_list() ->
     {ok, List} = inet:getif(),
+    List1 = [Ip1 || {Ip1, _, _} <- List],
+    %% get host name from node name
+    [_, Hostname] = string:tokens(atom_to_list(erlang:node()), "@"),
+    IpList = case inet:getaddr(Hostname, inet) of
+      {ok, HostIp} -> [HostIp|List1];
+      {error, _} -> List1
+    end,
     Port = application:get_env(antidote, pubsub_port, ?DEFAULT_PUBSUB_PORT),
-    [{Ip1, Port} || {Ip1, _, _} <- List, Ip1 /= {127, 0, 0, 1}].
+    [{Ip1, Port} || Ip1 <- IpList, Ip1 /= {127, 0, 0, 1}].
 
 -spec broadcast_tuple({#interdc_txn{}, #interdc_txn{}}) -> ok.
 broadcast_tuple({TxnShort, TxnFull}) ->

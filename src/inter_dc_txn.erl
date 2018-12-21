@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,11 +18,14 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
+
 -module(inter_dc_txn).
 -include("antidote.hrl").
 -include("inter_dc_repl.hrl").
@@ -66,12 +75,12 @@ ping(Partition, PrevLogOpId, Timestamp) -> #interdc_txn{
 -spec last_log_opid(#interdc_txn{}) -> #op_number{}.
 last_log_opid(Txn = #interdc_txn{log_records = Ops, prev_log_opid = LogOpId}) ->
     case is_ping(Txn) of
-	true -> LogOpId;
-	false ->
-	    LastOp = lists:last(Ops),
-	    CommitPld = LastOp#log_record.log_operation,
-	    commit = CommitPld#log_operation.op_type, %% sanity check
-	    LastOp#log_record.op_number
+        true -> LogOpId;
+        false ->
+            LastOp = lists:last(Ops),
+            CommitPld = LastOp#log_record.log_operation,
+            commit = CommitPld#log_operation.op_type, %% sanity check
+            LastOp#log_record.op_number
     end.
 
 -spec is_local(#interdc_txn{}) -> boolean().
@@ -115,12 +124,12 @@ pad(Width, Binary) ->
 -spec pad_or_trim(non_neg_integer(), binary()) -> binary().
 pad_or_trim(Width, Binary) ->
     case Width - byte_size(Binary) of
-	N when N == 0 -> Binary;
-	N when N < 0 ->
-	    Pos = trunc(abs(N)),
-	    <<_:Pos/binary, Rest:Width/binary>> = Binary,
-	    Rest;
-	N -> <<0:(N*8), Binary/binary>>
+        N when N == 0 -> Binary;
+        N when N < 0 ->
+            Pos = trunc(abs(N)),
+            <<_:Pos/binary, Rest:Width/binary>> = Binary,
+            Rest;
+        N -> <<0:(N*8), Binary/binary>>
   end.
 
 -spec partition_to_bin(partition_id()) -> binary().

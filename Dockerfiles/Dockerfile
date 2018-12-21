@@ -9,7 +9,7 @@ ENV RING_STATE_DIR "data/ring"
 ENV PLATFORM_DATA_DIR "data"
 ENV NODE_NAME "antidote@127.0.0.1"
 ENV SHORT_NAME "false"
-ENV ANTIDOTE_REPO "https://github.com/SyncFree/antidote.git"
+ENV ANTIDOTE_REPO "https://github.com/AntidoteDB/antidote.git"
 ENV ANTIDOTE_BRANCH "master"
 
 RUN set -xe \
@@ -31,7 +31,7 @@ RUN chmod a+x /opt/antidote/start_and_attach.sh \
   && chmod a+x /entrypoint.sh
 
 # Distributed Erlang Port Mapper
-EXPOSE 4368
+EXPOSE 4369
 # Ports for Antidote
 EXPOSE 8085 8086 8087 8099
 

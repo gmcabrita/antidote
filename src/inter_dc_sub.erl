@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% InterDC subscriber - connects to remote PUB sockets and listens to a defined subset of messages.
@@ -45,7 +53,7 @@
 
 %% State
 -record(state, {
-  sockets :: dict:dict() % DCID -> socket
+  sockets :: dict:dict(dcid(), erlzmq:erlzmq_socket()) % DCID -> socket
 }).
 
 %%%% API --------------------------------------------------------------------+
@@ -66,12 +74,12 @@ handle_call({add_dc, DCID, Publishers}, _From, OldState) ->
     %% First delete the DC if it is alread connected
     {_, State} = del_dc(DCID, OldState),
     case connect_to_nodes(Publishers, []) of
-	{ok, Sockets} ->
-	    %% TODO maybe intercept a situation where the vnode location changes and reflect it in sub socket filer rules,
-	    %% optimizing traffic between nodes inside a DC. That could save a tiny bit of bandwidth after node failure.
-	    {reply, ok, State#state{sockets = dict:store(DCID, Sockets, State#state.sockets)}};
-	connection_error ->
-	    {reply, error, State}
+        {ok, Sockets} ->
+            %% TODO maybe intercept a situation where the vnode location changes and reflect it in sub socket filer rules,
+            %% optimizing traffic between nodes inside a DC. That could save a tiny bit of bandwidth after node failure.
+            {reply, ok, State#state{sockets = dict:store(DCID, Sockets, State#state.sockets)}};
+        connection_error ->
+            {reply, error, State}
     end;
 
 handle_call({del_dc, DCID}, _From, State) ->
@@ -94,22 +102,22 @@ terminate(_Reason, State) ->
 
 del_dc(DCID, State) ->
     case dict:find(DCID, State#state.sockets) of
-	{ok, Sockets} ->
-	    lists:foreach(fun zmq_utils:close_socket/1, Sockets),
-	    {ok, State#state{sockets = dict:erase(DCID, State#state.sockets)}};
-	error ->
-	    {ok, State}
+        {ok, Sockets} ->
+            lists:foreach(fun zmq_utils:close_socket/1, Sockets),
+            {ok, State#state{sockets = dict:erase(DCID, State#state.sockets)}};
+        error ->
+            {ok, State}
     end.
 
 connect_to_nodes([], Acc) ->
     {ok, Acc};
 connect_to_nodes([Node|Rest], Acc) ->
     case connect_to_node(Node) of
-	{ok, Socket} ->
-	    connect_to_nodes(Rest, [Socket|Acc]);
-	connection_error ->
-	    lists:foreach(fun zmq_utils:close_socket/1, Acc),
-	    connection_error
+        {ok, Socket} ->
+            connect_to_nodes(Rest, [Socket|Acc]);
+        connection_error ->
+            lists:foreach(fun zmq_utils:close_socket/1, Acc),
+            connection_error
     end.
 
 connect_to_node([]) ->
@@ -123,16 +131,16 @@ connect_to_node([Address|Rest]) ->
     Res = erlzmq:recv(Socket1),
     ok = zmq_utils:close_socket(Socket1),
     case Res of
-	{ok, _} ->
-	    %% Create a subscriber socket for the specified DC
-	    Socket = zmq_utils:create_connect_socket(sub, true, Address),
-	    %% For each partition in the current node:
-	    MyDcId = dc_meta_data_utilities:get_my_dc_id(),
-	    lists:foreach(fun(P) ->
-				  %% Make the socket subscribe to messages prefixed with the given dcid and partition number
-				  ok = zmq_utils:sub_filter(Socket, inter_dc_txn:dcid_and_partition_to_bin(MyDcId, P))
-			  end, dc_utilities:get_my_partitions()),
-	    {ok, Socket};
-	_ ->
-	    connect_to_node(Rest)
+        {ok, _} ->
+            %% Create a subscriber socket for the specified DC
+            Socket = zmq_utils:create_connect_socket(sub, true, Address),
+            %% For each partition in the current node:
+            MyDcId = dc_meta_data_utilities:get_my_dc_id(),
+            lists:foreach(fun(P) ->
+                              %% Make the socket subscribe to messages prefixed with the given partition number
+                              ok = zmq_utils:sub_filter(Socket, inter_dc_txn:dcid_and_partition_to_bin(MyDcId, P))
+                          end, dc_utilities:get_my_partitions()),
+            {ok, Socket};
+        _ ->
+            connect_to_node(Rest)
     end.

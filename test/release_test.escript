@@ -15,7 +15,7 @@ load(Dep) ->
 
 main(_) ->
     % load required code
-    [load(Dep) || Dep <- ["riak_pb", "antidote_pb", "protobuffs"]],
+    [load(Dep) || Dep <- ["antidote_pb_codec", "antidotec_pb"]],
 
     % Try to read something:
     ok = test_transaction(20).
@@ -23,9 +23,9 @@ main(_) ->
 test_transaction(Tries) ->
     {ok, Pid} = try_connect(10),
     Key = <<"release_test_key">>,
-    Bound_object = {Key, antidote_crdt_counter, <<"release_test_key_bucket">>},
+    Bound_object = {Key, antidote_crdt_counter_pn, <<"release_test_key_bucket">>},
     io:format("Starting Test transaction~n"),
-    case antidotec_pb:start_transaction(Pid, ignore, {}) of
+    case antidotec_pb:start_transaction(Pid, ignore, []) of
         {error, Reason} when Tries > 0 ->
             io:format("Could not start transaction: ~p~n", [Reason]),
             timer:sleep(1000),

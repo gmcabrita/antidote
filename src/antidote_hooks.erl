@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% Pre-Commit hooks
@@ -25,6 +33,9 @@
 %%
 %% The commit hook function must be a function which take one argument which is
 %% of type update_object() and returns update_object().
+%% The update operation corresponds to a data-type specific operation as defined
+%% in the respective CRDT specification.
+%%
 %% fun (update_object()) -> {ok, update_object()} | {error, Reason}.
 %% -type update_object() :: {{key(), bucket()}, crdt_type(), op()}
 
@@ -111,7 +122,7 @@ execute_pre_commit_hook({Key, Bucket}, Type, Param) ->
             try Module:Function({{Key, Bucket}, Type, Param}) of
                 {ok, Res} -> Res
             catch
-                _:Reason -> {error, Reason}
+                _:Reason -> {error, {pre_commit_hook, Reason}}
             end
     end;
 %% The following is kept to be backward compatible with the old
@@ -130,22 +141,24 @@ execute_post_commit_hook({Key, Bucket}, Type, Param) ->
             try Module:Function({{Key, Bucket}, Type, Param}) of
                 {ok, Res} -> Res
             catch
-                _:Reason -> {error, Reason}
+                _:Reason -> {error, {post_commit_hook, Reason}}
             end
     end;
 execute_post_commit_hook(Key, Type, Param) ->
     {Key, Type, Param}.
 
 -ifdef(TEST).
+%% The following functions here provide commit hooks for the testing (test/commit_hook_SUITE).
+
 test_commit_hook(Object) ->
     lager:info("Executing test commit hook"),
     {ok, Object}.
 
-test_increment_hook({{Key, Bucket}, antidote_crdt_counter, {increment, 1}}) ->
-    {ok, {{Key, Bucket}, antidote_crdt_counter, {increment, 2}}}.
+test_increment_hook({{Key, Bucket}, antidote_crdt_counter_pn, {increment, 1}}) ->
+    {ok, {{Key, Bucket}, antidote_crdt_counter_pn, {increment, 2}}}.
 
 test_post_hook({{Key, Bucket}, Type, OP}) ->
-    {ok, _CT} = antidote:update_objects(ignore, [], [{{Key, antidote_crdt_counter, commitcount}, increment, 1}]),
+    {ok, _CT} = antidote:update_objects(ignore, [], [{{Key, antidote_crdt_counter_pn, commitcount}, increment, 1}]),
     {ok, {{Key, Bucket}, Type, OP}}.
 
 -endif.

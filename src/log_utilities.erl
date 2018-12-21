@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,11 +18,14 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
+
 -module(log_utilities).
 
 -include("antidote.hrl").
@@ -26,7 +35,8 @@
 -endif.
 
 
--export([get_preflist_from_key/1,
+-export([get_key_partition/1,
+         get_preflist_from_key/1,
          get_logid_from_key/1,
          remove_node_from_preflist/1,
          get_my_node/1,
@@ -43,6 +53,12 @@ get_logid_from_key(Key) ->
     %HashedKey = riak_core_util:chash_key({?BUCKET, term_to_binary(Key)}),
     PreflistAnn = get_preflist_from_key(Key),
     remove_node_from_preflist(PreflistAnn).
+
+%% @doc get_key_partition returns the most probable node where a given
+%%      key's logfile will be located.
+-spec get_key_partition(key()) -> index_node().
+get_key_partition(Key) ->
+    hd(get_preflist_from_key(Key)).
 
 %% @doc get_preflist_from_key returns a preference list where a given
 %%      key's logfile will be located.
@@ -74,7 +90,7 @@ get_my_node(Partition) ->
 %%
 -spec remove_node_from_preflist(preflist()) -> [partition_id()].
 remove_node_from_preflist(Preflist) ->
-    F = fun({P,_}) -> P end,
+    F = fun({P, _}) -> P end,
     lists:map(F, Preflist).
 
 %% @doc Convert key. If the key is integer(or integer in form of binary),
@@ -85,14 +101,14 @@ convert_key(Key) ->
     case is_binary(Key) of
         true ->
             KeyInt = (catch list_to_integer(binary_to_list(Key))),
-            case is_integer(KeyInt) of 
+            case is_integer(KeyInt) of
                 true -> abs(KeyInt);
                 false ->
                     HashedKey = riak_core_util:chash_key({?BUCKET, Key}),
                     abs(crypto:bytes_to_integer(HashedKey))
             end;
         false ->
-            case is_integer(Key) of 
+            case is_integer(Key) of
                 true ->
                     abs(Key);
                 false ->
@@ -119,7 +135,7 @@ check_log_record_version(LogRecord) ->
 
 
 
-%% @doc Testing remove_node_from_preflist
+%% Testing remove_node_from_preflist
 remove_node_from_preflist_test()->
     Preflist = [{partition1, node},
                 {partition2, node},
@@ -127,7 +143,7 @@ remove_node_from_preflist_test()->
     ?assertEqual([partition1, partition2, partition3],
                  remove_node_from_preflist(Preflist)).
 
-%% @doc Testing convert key
+%% Testing convert key
 convert_key_test()->
     ?assertEqual(1, convert_key(1)),
     ?assertEqual(1, convert_key(-1)),

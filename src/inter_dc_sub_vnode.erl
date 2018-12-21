@@ -1,6 +1,12 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2014 SyncFree Consortium.  All Rights Reserved.
+%% Copyright <2013-2018> <
+%%  Technische Universität Kaiserslautern, Germany
+%%  Université Pierre et Marie Curie / Sorbonne-Université, France
+%%  Universidade NOVA de Lisboa, Portugal
+%%  Université catholique de Louvain (UCL), Belgique
+%%  INESC TEC, Portugal
+%% >
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -12,10 +18,12 @@
 %% Unless required by applicable law or agreed to in writing,
 %% software distributed under the License is distributed on an
 %% "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-%% KIND, either express or implied.  See the License for the
+%% KIND, either expressed or implied.  See the License for the
 %% specific language governing permissions and limitations
 %% under the License.
 %%
+%% List of the contributors to the development of Antidote: see AUTHORS file.
+%% Description and complete License: see LICENSE file.
 %% -------------------------------------------------------------------
 
 %% This vnode is responsible for receiving transactions from remote DCs and
@@ -46,12 +54,14 @@
   encode_handoff_item/2,
   is_empty/1,
   terminate/2,
-  delete/1]).
+  delete/1,
+  handle_overload_command/3,
+  handle_overload_info/2]).
 
 %% State
 -record(state, {
   partition :: non_neg_integer(),
-  buffer_fsms :: dict:dict() %% dcid -> buffer
+  buffer_fsms :: dict:dict(dcid(), #inter_dc_sub_buf{}) %% dcid -> buffer
 }).
 
 %%%% API --------------------------------------------------------------------+
@@ -61,8 +71,8 @@ deliver_txn(Txn) -> call(Txn#interdc_txn.partition, {txn, Txn}).
 
 %% This function is called with the response from the log request operations request
 %% when some messages were lost
--spec deliver_log_reader_resp(binary(),#request_cache_entry{}) -> ok.
-deliver_log_reader_resp(BinaryRep,_RequestCacheEntry) ->
+-spec deliver_log_reader_resp(binary(), #request_cache_entry{}) -> ok.
+deliver_log_reader_resp(BinaryRep, _RequestCacheEntry) ->
     <<Partition:?PARTITION_BYTE_LENGTH/big-unsigned-integer-unit:8, RestBinary/binary>> = BinaryRep,
     call(Partition, {log_reader_resp, RestBinary}).
 
@@ -94,15 +104,22 @@ encode_handoff_item(_ObjectName, _ObjectValue) -> <<>>.
 is_empty(State) -> {true, State}.
 terminate(_Reason, _ModState) -> ok.
 delete(State) -> {ok, State}.
+handle_overload_command(_, _, _) ->
+    ok.
+handle_overload_info(_, _) ->
+    ok.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+-spec call(partition_id(), {txn, #interdc_txn{}} | {log_reader_resp, binary()}) -> ok.
 call(Partition, Request) -> dc_utilities:call_local_vnode(Partition, inter_dc_sub_vnode_master, Request).
 
+-spec get_buf(dcid(), #state{}) -> #inter_dc_sub_buf{}.
 get_buf(DCID, State) ->
   case dict:find(DCID, State#state.buffer_fsms) of
     {ok, Buf} -> Buf;
     error -> inter_dc_sub_buf:new_state({DCID, State#state.partition})
   end.
 
+-spec set_buf(dcid(), #inter_dc_sub_buf{}, #state{}) -> #state{}.
 set_buf(DCID, Buf, State) -> State#state{buffer_fsms = dict:store(DCID, Buf, State#state.buffer_fsms)}.
