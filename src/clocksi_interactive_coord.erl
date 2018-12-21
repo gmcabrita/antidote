@@ -904,17 +904,23 @@ get_snapshot_time(ClientClock) ->
 
 
 -spec get_snapshot_time() -> {ok, snapshot_time()}.
-get_snapshot_time() ->
+get_snapshot_time() -> get_snapshot_time_(false).
+
+get_snapshot_time_(ShouldOffset) ->
     Now = dc_utilities:now_microsec() - ?OLD_SS_MICROSEC,
+    Now1 = case ShouldOffset of
+        true -> (Now-1) - ((Now-1) rem (?BUFFER_TXN_TIMER * 1000));
+        false -> Now
+    end,
     {ok, VecSnapshotTime} = ?DC_UTIL:get_stable_snapshot(),
     DcId = ?DC_META_UTIL:get_my_dc_id(),
-    SnapshotTime = vectorclock:set_clock_of_dc(DcId, Now, VecSnapshotTime),
+    SnapshotTime = vectorclock:set_clock_of_dc(DcId, Now1, VecSnapshotTime),
     {ok, SnapshotTime}.
 
 
 -spec wait_for_clock(snapshot_time()) -> {ok, snapshot_time()}.
 wait_for_clock(Clock) ->
-    {ok, VecSnapshotTime} = get_snapshot_time(),
+    {ok, VecSnapshotTime} = get_snapshot_time(?BUFFER_TXNS),
     case vectorclock:ge(VecSnapshotTime, Clock) of
         true ->
             %% No need to wait

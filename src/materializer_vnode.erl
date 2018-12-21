@@ -57,6 +57,7 @@
          check_tables_ready/0,
          read/6,
          store_ss/3,
+         store_ss/4,
          update/2]).
 
 %% Callbacks
@@ -503,7 +504,7 @@ materialize_snapshot(TxId, Key, Type, SnapshotTime, ShouldGC, State, SnapshotRes
                     SufficientOps = OpsAdded >= ?MIN_OP_STORE_SS,
                     ShouldRefreshCache = WasUpdated and IsNewest and SufficientOps,
                     % trigger GC if type is ccrdt
-                    ShouldGc1 = ShouldGc orelse antidote_ccrdt:is_type(Type),
+                    ShouldGC1 = ShouldGC orelse antidote_ccrdt:is_type(Type),
 
                     %% Only store the snapshot if it would be at the end of the list and
                     %% has new operations added to the previous snapshot
@@ -547,6 +548,7 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #state{snapshot_cache = Snapshot
                         deconstruct_opscache_entry(Tuple)
                 end,
             {NewLength, PrunedOps} = prune_ops({Length, OpsDict}, CommitTime),
+            [{_, OldSnapshotDict}] = ets:lookup(SnapshotCache, Key),
             true = ets:insert(SnapshotCache, {Key, PrunedSnapshots}),
             %% Check if the pruned ops are larger or smaller than the previous list size
             %% if so create a larger or smaller list (by dividing or multiplying by 2)
@@ -571,7 +573,7 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #state{snapshot_cache = Snapshot
                          end
                      end,
         NewTuple = erlang:make_tuple(?FIRST_OP+NewListLen, 0, [{1, Key}, {2, {NewLength, NewListLen}}, {3, OpId}|PrunedOps]),
-        true = ets:insert(OpsCache, NewTuple);
+        true = ets:insert(OpsCache, NewTuple),
         {_, _, _, _, OpsDictList} = tuple_to_key(OpsDict,true),
         Type = case OpsDictList of
             [] -> nil;

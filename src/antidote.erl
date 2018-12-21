@@ -181,8 +181,7 @@ update_objects(Clock, Properties, Updates) ->
 %%% ================= %%
 
 type_check_update({{_K, Type, _bucket}, Op, Param}) ->
-    antidote_crdt:is_type(Type) andalso
-        Type:is_operation({Op, Param}).
+    (antidote_crdt:is_type(Type) orelse antidote_ccrdt:is_type(Type)) andalso Type:is_operation({Op, Param}).
 
 -spec type_check([{bound_object(), op_name(), op_param()}]) -> ok | {error, reason()}.
 type_check(Updates) ->

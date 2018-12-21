@@ -95,7 +95,7 @@ materialize(Type, TxId, MinSnapshotTime,
 
         materialize_intern(Type, [], LastOp, FirstId, SnapshotCommitTime, MinSnapshotTime,
                            Ops, TxId, SnapshotCommitTime, false, 0),
-    case apply_operations(Type, Snapshot, 0, OpList) of
+    case apply_operations(Type, Snapshot, 0, OpList, []) of
         {ok, NewSS, Count} ->
             {ok, NewSS, NewLastOp, LastOpCt, IsNewSS, Count};
         {ok, NewSS, Count, []} ->
