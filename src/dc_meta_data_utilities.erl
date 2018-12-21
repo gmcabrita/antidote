@@ -229,7 +229,7 @@ set_dc_partitions(PartitionList, DCID) ->
 
 -spec add_dc(dcid()) -> ok.
 add_dc(DcId) ->
-	ok = stable_meta_data_server:broadcast_meta_data_merge(dc_list, DcId, fun ordsets:add_element/2, fun ordsets:new/0).
+    ok = stable_meta_data_server:broadcast_meta_data_merge(dc_list, DcId, fun ordsets:add_element/2, fun ordsets:new/0).
 
 %% Get an ordered list of all the dc ids
 -spec get_dc_ids(boolean()) -> [dcid()].

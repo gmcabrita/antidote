@@ -208,7 +208,7 @@ del_heartbeat_timer(State = #state{timer = Timer}) ->
 %% Cancels the previous ping timer and sets a new one.
 -spec set_heartbeat_timer(#state{}) -> #state{}.
 set_heartbeat_timer(State) ->
-    set_heartbeat_timer(false,State).
+    set_heartbeat_timer(false, State).
 
 -spec set_heartbeat_timer(boolean(), #state{}) -> #state{}.
 set_heartbeat_timer(First, State = #state{partition = Partition}) ->
@@ -240,7 +240,7 @@ del_buffer_timer(State = #state{buffer_timer = Timer}) ->
 -spec set_buffer_timer(#state{}) -> #state{}.
 set_buffer_timer(State) ->
     case ?BUFFER_TXNS of
-        true -> set_buffer_timer(false,State);
+        true -> set_buffer_timer(false, State);
         false -> State
     end.
 

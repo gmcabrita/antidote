@@ -392,10 +392,9 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
               enable_log_to_disk=EnableLog}=State) ->
     case get_log_from_map(Map, Partition, LogId) of
         {ok, Log} ->
-	    MyDCID = dc_meta_data_utilities:get_my_dc_id(),
-	    %% all operations update the per log, operation id
-	    OpId = get_op_id(OpIdTable, {LogId, MyDCID}),
-
+        MyDCID = dc_meta_data_utilities:get_my_dc_id(),
+        %% all operations update the per log, operation id
+        OpId = get_op_id(OpIdTable, {LogId, MyDCID}),
             case LogOperation#log_operation.op_type == update andalso (LogOperation#log_operation.log_payload)#update_log_payload.op == noop of
                 true ->
                     {reply, {ok, OpId}, State};
@@ -409,7 +408,7 @@ handle_command({append, LogId, LogOperation, Sync}, _Sender,
                     case LogOperation#log_operation.op_type of
                         update ->
                             Bucket = (LogOperation#log_operation.log_payload)#update_log_payload.bucket,
-                            BOpId = get_op_id(OpIdTable, {LogId,Bucket,MyDCID}),
+                            BOpId = get_op_id(OpIdTable, {LogId, Bucket, MyDCID}),
                             #op_number{local = BLocal, global = BGlobal} = BOpId,
                             NewBOpId = BOpId#op_number{local = BLocal + 1, global = BGlobal + 1},
                             true = update_ets_op_id({LogId, Bucket, MyDCID}, NewBOpId, OpIdTable),

@@ -93,7 +93,7 @@ broadcast_tuple({TxnShort, TxnFull}) ->
   end,
 
   % Shuffle list of DCs
-  ShuffledDCs = [X || {_,X} <- lists:sort([{rand:uniform(), N} || N <- DCs])],
+  ShuffledDCs = [X || {_, X} <- lists:sort([{rand:uniform(), N} || N <- DCs])],
   {DCsFull, DCsShort} = case ShuffledDCs of
     [] -> {[], []};
     _ -> lists:split(?CCRDT_REPLICATION_FACTOR - 1, ShuffledDCs)

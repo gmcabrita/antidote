@@ -117,16 +117,16 @@ materialize(Type, TxId, MinSnapshotTime,
 %%      it, or an error.
 -spec apply_operations(type(), snapshot(), non_neg_integer(), [clocksi_payload()], [op()]) ->
                               {ok, snapshot(), non_neg_integer()} | {ok, snapshot(), non_neg_integer(), [op()]} |{error, reason()}.
-apply_operations(_Type,Snapshot,Count,[], []) ->
+apply_operations(_Type, Snapshot, Count, [], []) ->
     {ok, Snapshot, Count};
-apply_operations(_Type,Snapshot,Count,[], GeneratedDownstreamOps) ->
+apply_operations(_Type, Snapshot, Count, [], GeneratedDownstreamOps) ->
     {ok, Snapshot, Count, GeneratedDownstreamOps};
 apply_operations(Type, Snapshot, Count, [Op | Rest], GeneratedDownstreamOps) ->
     case materializer:update_snapshot(Type, Snapshot, Op#clocksi_payload.op_param) of
         {ok, NewSnapshot, NewGeneratedDownstreamOp} ->
             apply_operations(Type, NewSnapshot, Count+1, Rest, NewGeneratedDownstreamOp ++ GeneratedDownstreamOps);
         {ok, NewSnapshot} ->
-	        apply_operations(Type, NewSnapshot, Count+1, Rest, GeneratedDownstreamOps);
+            apply_operations(Type, NewSnapshot, Count+1, Rest, GeneratedDownstreamOps);
         {error, Reason} ->
             {error, Reason}
     end.

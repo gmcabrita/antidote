@@ -123,7 +123,7 @@ store_ss(Key, Snapshot, CommitTime) ->
 store_ss(Key, Snapshot, CommitTime, ShouldGc) ->
     Preflist = log_utilities:get_preflist_from_key(Key),
     IndexNode = hd(Preflist),
-    riak_core_vnode_master:command(IndexNode, {store_ss,Key, Snapshot, CommitTime, ShouldGc},
+    riak_core_vnode_master:command(IndexNode, {store_ss, Key, Snapshot, CommitTime, ShouldGc},
                                         materializer_vnode_master).
 
 init([Partition]) ->
@@ -195,7 +195,7 @@ handle_command({update, Key, DownstreamOp}, _Sender, State) ->
     {reply, ok, State};
 
 handle_command({store_ss, Key, Snapshot, CommitTime, ShouldGc}, _Sender, State) ->
-    internal_store_ss(Key,Snapshot,CommitTime,ShouldGc,State),
+    internal_store_ss(Key, Snapshot, CommitTime, ShouldGc, State),
     {noreply, State};
 
 handle_command({store_ss, Key, Snapshot, CommitTime}, _Sender, State) ->
@@ -574,7 +574,7 @@ snapshot_insert_gc(Key, SnapshotDict, ShouldGc, #state{snapshot_cache = Snapshot
                      end,
         NewTuple = erlang:make_tuple(?FIRST_OP+NewListLen, 0, [{1, Key}, {2, {NewLength, NewListLen}}, {3, OpId}|PrunedOps]),
         true = ets:insert(OpsCache, NewTuple),
-        {_, _, _, _, OpsDictList} = tuple_to_key(OpsDict,true),
+        {_, _, _, _, OpsDictList} = tuple_to_key(OpsDict, true),
         Type = case OpsDictList of
             [] -> nil;
             [{_, O} | _] -> O#clocksi_payload.type
@@ -662,24 +662,24 @@ deconstruct_opscache_entry(Tuple) ->
 %% to a tuple and list usable by the materializer
 %% The second argument if true will convert the ops tuple to a list of ops
 %% Otherwise it will be kept as a tuple
--spec tuple_to_key(tuple(),boolean()) -> {any(),integer(),non_neg_integer(),non_neg_integer(),
-					  [op_and_id()]|tuple()}.
-tuple_to_key(Tuple,ToList) ->
+-spec tuple_to_key(tuple(), boolean()) -> {any(), integer(), non_neg_integer(), non_neg_integer(),
+                    [op_and_id()]|tuple()}.
+tuple_to_key(Tuple, ToList) ->
     Key = element(1, Tuple),
-    {Length,ListLen} = element(2, Tuple),
+    {Length, ListLen} = element(2, Tuple),
     OpId = element(3, Tuple),
     Ops =
-	case ToList of
-	    true ->
-		tuple_to_key_int(?FIRST_OP,Length+?FIRST_OP,Tuple,[]);
-	    false ->
-		Tuple
-	end,
-    {Key,Length,OpId,ListLen,Ops}.
-tuple_to_key_int(Next,Next,_Tuple,Acc) ->
+    case ToList of
+        true ->
+            tuple_to_key_int(?FIRST_OP, Length+?FIRST_OP, Tuple, []);
+        false ->
+            Tuple
+    end,
+    {Key, Length, OpId, ListLen, Ops}.
+tuple_to_key_int(Next, Next, _Tuple, Acc) ->
     Acc;
-tuple_to_key_int(Next,Last,Tuple,Acc) ->
-    tuple_to_key_int(Next+1,Last,Tuple,[element(Next,Tuple)|Acc]).
+tuple_to_key_int(Next, Last, Tuple, Acc) ->
+    tuple_to_key_int(Next+1, Last, Tuple, [element(Next, Tuple) | Acc]).
 
 %% @doc Insert an operation and optionally start garbage collection triggered by writes.
 -spec op_insert_gc(key(), clocksi_payload(), #state{}) -> true.
