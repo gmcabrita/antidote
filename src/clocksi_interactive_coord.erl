@@ -920,7 +920,7 @@ get_snapshot_time_(ShouldOffset) ->
 
 -spec wait_for_clock(snapshot_time()) -> {ok, snapshot_time()}.
 wait_for_clock(Clock) ->
-    {ok, VecSnapshotTime} = get_snapshot_time(?BUFFER_TXNS),
+    {ok, VecSnapshotTime} = get_snapshot_time_(?BUFFER_TXNS),
     case vectorclock:ge(VecSnapshotTime, Clock) of
         true ->
             %% No need to wait
@@ -1264,7 +1264,7 @@ get_snapshot_time_test() ->
 wait_for_clock_test() ->
     {ok, SnapshotTime} = wait_for_clock(vectorclock:from_list([{mock_dc, 10}])),
     ?assertMatch([{mock_dc, _}], dict:to_list(SnapshotTime)),
-    VecClock = dc_utilities:now_microsec() + (?BUFFER_TXN_TIMER * 1000),
+    VecClock = dc_utilities:now_microsec(),
     {ok, SnapshotTime2} = wait_for_clock(vectorclock:from_list([{mock_dc, VecClock}])),
     ?assertMatch([{mock_dc, _}], dict:to_list(SnapshotTime2)).
 
